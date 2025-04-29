@@ -1,7 +1,11 @@
-import type { NextConfig } from "next";
+/** @type {import('next').NextConfig} */
+const config = {
+  experimental: {
+    serverActions: {
+      enabled: true
+    },
+    // nodeMiddleware: true, // Disabled for stability
+  }
+}
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
-
-export default nextConfig;
+export default config

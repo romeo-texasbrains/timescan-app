@@ -20,7 +20,23 @@
     ],
     "paths": {
       "@/*": ["./*"]
-    }
+    },
+    "types": [
+      "node", 
+      "jest", 
+      "@testing-library/jest-dom",
+      "d3-color", 
+      "d3-ease", 
+      "d3-interpolate", 
+      "d3-path", 
+      "d3-scale", 
+      "d3-shape", 
+      "d3-time", 
+      "d3-timer", 
+      "estree", 
+      "json-schema", 
+      "phoenix"
+    ]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
