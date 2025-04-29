@@ -10,18 +10,6 @@ import { redirect } from 'next/navigation'
 import { Database } from '@/lib/supabase/database.types'
 import { format, startOfDay, isSameDay, parseISO } from 'date-fns';
 
-// Placeholder type for report data
-type ReportData = {
-  employeeId: string; // Added ID for potential linking
-  employeeName: string;
-  date: string;
-  totalHours: number;
-  // Add other relevant fields
-};
-
-// Define Profile type
-type Profile = Database['public']['Tables']['profiles']['Row'];
-
 // Type for processed, aggregated report row
 type ReportRow = {
   employeeId: string;

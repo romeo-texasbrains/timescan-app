@@ -3,9 +3,7 @@ import { Database } from '@/lib/supabase/database.types'
 import { format } from 'date-fns'; // Using date-fns for formatting
 import Link from 'next/link'; // Import Link for pagination
 
-type AttendanceLog = Database['public']['Tables']['attendance_logs']['Row']
-
-// Helper function to format timestamp
+// Re-add Helper function to format timestamp
 function formatTimestamp(timestamp: string | null): string {
   if (!timestamp) return 'N/A';
   try {
@@ -74,11 +72,16 @@ export default async function HistoryPage({ searchParams }: { searchParams?: { [
     logs = result.logs;
     currentPage = result.currentPage;
     totalPages = result.totalPages;
-  } catch (error: any) {
+  } catch (error: unknown) {
     fetchError = error;
+    // Log the error for debugging
+    console.error("History page fetch error:", error);
+    // Type guard moved inside the catch block to set a user-friendly message
+    fetchError = new Error(error instanceof Error ? error.message : 'An unknown error occurred while fetching history.');
   }
 
   if (fetchError) {
+    // Display the message from the fetchError object (which is now guaranteed to be an Error)
     return <p className="text-red-600">{fetchError.message}</p>;
   }
 

@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z, ZodIssue } from 'zod';
 import { redirect } from 'next/navigation';
 import { createClient as createServerClient } from '@/lib/supabase/server'; // For checking current admin status
-import { loadEnvVariables, getValidatedEnv } from "@/lib/environment";
+import { loadEnvVariables } from "@/lib/environment";
 
 // Input validation schema
 const AddEmployeeSchema = z.object({
@@ -169,7 +169,7 @@ export async function addEmployee(formData: unknown): Promise<ActionResult> {
         // Revalidate path? 
         // revalidatePath('/admin/employees');
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Unexpected Error in addEmployee action:", error);
         return { success: false, message: "An unexpected server error occurred." };
     }

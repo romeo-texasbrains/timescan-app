@@ -2,10 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client' // Use client supabase
-import { useRouter, usePathname } from 'next/navigation' // Use navigation hooks
+import { useRouter } from 'next/navigation' // Use navigation hooks
 import Sidebar from '@/components/Sidebar'
 import Topbar from '@/components/Topbar'
-import { Database } from '@/lib/supabase/database.types';
 import toast from 'react-hot-toast';
 
 // Define role type here as well
@@ -16,7 +15,6 @@ const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth <
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
   const supabase = createClient(); // Use client-side Supabase
 
   const [userEmail, setUserEmail] = useState<string | null>(null);

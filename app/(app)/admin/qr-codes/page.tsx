@@ -57,7 +57,7 @@ export default function QrCodeManagementPage() {
   // Load configs on component mount
   useEffect(() => {
     loadConfigs();
-  }, []); // Empty dependency array means run once on mount
+  }, [loadConfigs]); // Add loadConfigs to dependencies
 
   const handleGenerate = () => {
     if (!locationIdentifier.trim()) {
