@@ -5,14 +5,13 @@ import { Database } from '@/lib/supabase/database.types'
 import { revalidatePath } from 'next/cache'
 import type { SupabaseClient } from '@supabase/supabase-js' // Import the type
 
-// Define return type for actions
+// Type for action results
 type QrActionResult = {
   success: boolean;
-  message?: string;
+  message: string;
 };
 
-// Helper to check admin status
-// Expects the *resolved* Supabase client
+// Helper function to check if user is admin
 async function checkAdmin(supabase: SupabaseClient<Database>): Promise<{ isAdmin: boolean; userId: string | null }> {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
@@ -27,7 +26,7 @@ async function checkAdmin(supabase: SupabaseClient<Database>): Promise<{ isAdmin
   return { isAdmin: !profileError && profile?.role === 'admin', userId: user.id };
 }
 
-// Action to save a new QR code configuration
+// Action to save a QR code configuration
 export async function saveQrConfig(locationIdentifier: string, qrValue: string): Promise<QrActionResult> {
   const supabase = await createClient() // Await here to resolve the client
   const { isAdmin, userId } = await checkAdmin(supabase); // Pass the resolved client
@@ -36,7 +35,7 @@ export async function saveQrConfig(locationIdentifier: string, qrValue: string):
     return { success: false, message: "Unauthorized action." };
   }
   if (!locationIdentifier?.trim() || !qrValue?.trim()) {
-      return { success: false, message: "Location identifier and QR value cannot be empty." };
+    return { success: false, message: "Invalid QR code configuration." };
   }
 
   const { error } = await supabase // Use the awaited client
@@ -50,7 +49,7 @@ export async function saveQrConfig(locationIdentifier: string, qrValue: string):
   if (error) {
     console.error("Error saving QR config:", error);
     if (error.code === '23505') { 
-         return { success: false, message: `Failed to save: Location identifier '${locationIdentifier.trim()}' already exists.` };
+      return { success: false, message: `A QR code for "${locationIdentifier.trim()}" already exists.` };
     }
     return { success: false, message: `Failed to save QR config: ${error.message}` };
   }
@@ -69,7 +68,7 @@ export async function deleteQrConfig(id: number): Promise<QrActionResult> {
   }
 
   if (typeof id !== 'number' || id <= 0) {
-      return { success: false, message: "Invalid ID for deletion." };
+    return { success: false, message: "Invalid QR code ID." };
   }
 
   const { error } = await supabase // Use the awaited client

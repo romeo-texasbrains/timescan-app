@@ -18,7 +18,7 @@ import ArrowPathIcon from '@heroicons/react/24/outline/ArrowPathIcon';
 import ArrowDownTrayIcon from '@heroicons/react/24/outline/ArrowDownTrayIcon';
 import PlusCircleIcon from '@heroicons/react/24/outline/PlusCircleIcon';
 // Trying explicit relative path again for Skeleton - ensure this is correct
-import { Skeleton } from "../../../../components/ui/skeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const QR_CODE_PREFIX = "TIMESCAN-LOC:";
 
