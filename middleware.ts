@@ -1,54 +1,53 @@
-import { type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/middleware'
+import { type NextRequest, NextResponse } from 'next/server'
+// import { createClient } from '@/lib/supabase/middleware' // Comment out Supabase import
 
 export async function middleware(request: NextRequest) {
-  // The `createClient` function created earlier handles updating the Vercel Edge Runtime compatible response cookies.
-  // It also returns the modified response so it can be returned from the middleware.
+  console.log(`[Middleware - SIMPLIFIED] Request received for path: ${request.nextUrl.pathname}`);
+  
+  // --- TEMPORARILY BYPASS ALL AUTH LOGIC --- 
+  // Directly pass the request through without checking session or redirecting.
+  return NextResponse.next({ 
+      request: { 
+          headers: request.headers 
+      } 
+  });
+  // -------------------------------------------
+
+/* // --- Original Logic Commented Out ---
   const { supabase, response } = createClient(request)
-
-  // Refresh session if expired - required for Server Components
-  // https://supabase.com/docs/guides/auth/server-side/nextjs
   const { data: { session } } = await supabase.auth.getSession()
-
+  console.log(`[Middleware] Session exists: ${!!session}`);
   const { pathname } = request.nextUrl
-
-  // Define protected routes (adjust regex or paths as needed)
-  const protectedRoutes = ['/', '/scan', '/history', '/mgmt', '/admin'] // Add base path '/' if it should be protected
-
-  // Check if the current path starts with any of the protected routes
+  const protectedRoutes = ['/', '/scan', '/history', '/mgmt', '/admin'] 
   const isProtectedRoute = protectedRoutes.some((route) => pathname === route || (route !== '/' && pathname.startsWith(route + '/')))
-
-  // Redirect to login if user is not authenticated and trying to access a protected route
+  console.log(`[Middleware] Pathname: ${pathname}, Is protected: ${isProtectedRoute}`);
   if (!session && isProtectedRoute) {
-    // Save the intended destination for redirect after login
+    console.log(`[Middleware] Redirecting unauthenticated user from ${pathname} to /login`);
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/login'
-    // Optional: add a query param to redirect back after login?
-    // redirectUrl.searchParams.set('redirectedFrom', pathname)
     return Response.redirect(redirectUrl)
   }
-
-  // If user is authenticated and tries to access login page, redirect them to home/dashboard
   if (session && pathname === '/login') {
+    console.log(`[Middleware] Redirecting authenticated user from /login to /`);
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/' // Redirect to home page
+    redirectUrl.pathname = '/' 
     return Response.redirect(redirectUrl)
   }
-
-  // IMPORTANT: Avoid running middleware logic on static assets, API routes, or internal Next.js paths
   if (
     pathname.startsWith('/_next/') ||
     pathname.startsWith('/static/') ||
-    pathname.startsWith('/api/') ||  // Exclude API routes
-    pathname.includes('.') // Generally includes files like favicon.ico, images, etc.
+    pathname.startsWith('/api/') ||  
+    pathname.includes('.') 
   ) {
-    return response // Pass through without auth checks
+    console.log(`[Middleware] Skipping middleware for asset/internal path: ${pathname}`);
+    return response 
   }
-
-  // Return the response with updated cookies
+  console.log(`[Middleware] Allowing request to proceed for path: ${pathname}`);
   return response
+*/// --- End Original Logic ---
 }
 
+// Keep original config
 export const config = {
   runtime: 'nodejs',
   matcher: [
