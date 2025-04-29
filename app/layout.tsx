@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import ClientRootLayout from "@/components/ClientRootLayout";
 import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
@@ -18,13 +17,9 @@ export default function RootLayout({
       <head>
         <link rel="icon" href="/logo.png" sizes="any" />
       </head>
-      <body>
+      <body className="font-sans antialiased" suppressHydrationWarning>
         <Toaster position="top-center" reverseOrder={false} />
-        <ClientRootLayout
-          bodyClassName="font-sans antialiased"
-        >
-          {children}
-        </ClientRootLayout>
+        {children}
       </body>
     </html>
   );
