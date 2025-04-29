@@ -3,19 +3,20 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import Image from 'next/image'
+import toast from 'react-hot-toast'
 
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setMessage('') // Clear previous messages
     setIsLoading(true)
+    toast.dismiss()
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -24,30 +25,39 @@ export default function LoginPage() {
       })
 
       if (error) {
-        setMessage(`Login failed: ${error.message}`)
+        toast.error(`Login failed: ${error.message}`)
       } else {
-        setMessage('Login successful! Redirecting...')
-        // Redirect to the main app page or dashboard after successful login
-        // The middleware should handle redirection upon session refresh, but we can push proactively.
-        router.push('/') // Or '/dashboard' etc.
-        router.refresh() // Ensure layout re-renders and fetches user session
+        toast.success('Login successful! Redirecting...')
+        router.push('/')
+        router.refresh()
       }
-    } catch (error) {
-      setMessage('An unexpected error occurred. Please try again.')
+    } catch (error: any) {
+      toast.error(error?.message || 'An unexpected error occurred. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded shadow-md">
-        <h2 className="text-2xl font-bold text-center">Login to TimeScan</h2>
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="w-full max-w-md p-8 space-y-6 bg-card rounded-lg shadow-xl border border-border">
+        <div className="flex justify-center mb-6">
+          <div className="relative h-12 w-32">
+            <Image
+              src="/logo.png"
+              alt="TimeScan Logo"
+              fill
+              sizes="(max-width: 768px) 20vw, 128px"
+              className="object-contain"
+            />
+          </div>
+        </div>
+        <h2 className="text-2xl font-bold text-center text-foreground">Login to TimeScan</h2>
         <form onSubmit={handleLogin} className="space-y-6">
           <div>
             <label
               htmlFor="email"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-muted-foreground"
             >
               Email address
             </label>
@@ -59,13 +69,13 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 mt-1 border bg-input border-border rounded shadow-sm focus:outline-none focus:ring-primary focus:border-primary text-foreground"
             />
           </div>
           <div>
             <label
               htmlFor="password"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-muted-foreground"
             >
               Password
             </label>
@@ -77,23 +87,18 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 mt-1 border bg-input border-border rounded shadow-sm focus:outline-none focus:ring-primary focus:border-primary text-foreground"
             />
           </div>
-          {message && (
-            <p
-              className={`text-sm ${message.startsWith('Login failed') ? 'text-red-600' : 'text-green-600'}`}
-            >
-              {message}
-            </p>
-          )}
           <div>
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full px-4 py-2 font-medium text-white ${
-                isLoading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'
-              } rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+              className={`w-full px-4 py-2 font-medium text-primary-foreground ${
+                isLoading
+                  ? 'bg-primary/70 cursor-not-allowed'
+                  : 'bg-primary hover:bg-primary/90'
+              } rounded focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary`}
             >
               {isLoading ? (
                 <span className="flex items-center justify-center">

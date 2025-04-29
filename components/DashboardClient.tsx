@@ -29,7 +29,8 @@ function InnerPieChart({ todaySecs }: { todaySecs: number }) {
     { value: Math.max(0, todaySecs / 3600) },
     { value: Math.max(0, 8 - (todaySecs / 3600)) }
   ];
-  const COLORS = ['#2563eb', '#e5e7eb']; // blue-600, gray-200
+  // Use theme colors: primary and muted/accent
+  const COLORS = ['var(--color-primary)', 'var(--color-muted)'];
 
   return (
     <div style={{ width: 120, height: 120 }}>
@@ -54,6 +55,18 @@ function InnerPieChart({ todaySecs }: { todaySecs: number }) {
   );
 }
 // --- End Dynamic Wrapper ---
+
+// Helper function for StatBar colors (using new theme variables)
+const getStatBarColor = (label: string): string => {
+  switch (label.toLowerCase()) {
+    case 'today': return 'bg-primary'; // Use primary color
+    case 'this week': return 'bg-chart-2'; // Use a chart color
+    case 'this month': return 'bg-chart-3'; // Use another chart color
+    case 'remaining': return 'bg-muted'; // Use muted background
+    case 'overtime': return 'bg-destructive'; // Use destructive color
+    default: return 'bg-accent'; // Fallback
+  }
+};
 
 export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { // Use AttendanceLog type
   const router = useRouter(); // Get router instance
@@ -156,104 +169,161 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
   // ------------------------
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      {/* Timesheet Card - NOTE: Pie chart logic might need adjustment based on how '8 hours' is defined */}
-      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.05}} className="col-span-1 bg-white dark:bg-gray-800 rounded-xl shadow p-6 flex flex-col items-center">
-        <div className="font-semibold text-lg mb-2">Timesheet</div>
-        <div className="text-gray-500 text-sm mb-2">{format(now, 'PPPP')}</div>
+    // Adjust grid gap for smaller screens
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6 lg:gap-8">
+      {/* Timesheet Card */}
+      <motion.div
+        initial={{opacity:0, y:20}}
+        animate={{opacity:1, y:0}}
+        transition={{delay:0.05}}
+        whileHover={{ scale: 1.02 }} // Add scale on hover
+        // Add glass effect classes, use bg-card, update text colors
+        // Responsive span (full width on small, half on medium, third on xl+)
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col items-center text-foreground transition-shadow hover:shadow-xl"
+      >
+        <div className="font-semibold text-lg mb-2 text-foreground">Timesheet</div>
+        <div className="text-muted-foreground text-sm mb-2">{format(now, 'PPPP')}</div>
+        {/* TODO: Update PieChart colors to match theme */}
         <DynamicPieChartComponent todaySecs={todaySecs} />
-        <div className="text-3xl font-bold my-2">{hours(todaySecs)} hrs</div>
-        {/* Punch Out Button - Conditionally enabled */}
+        <div className="text-3xl font-bold my-2 text-foreground">{hours(todaySecs)} hrs</div>
+        {/* Punch Out Button - Use destructive variant */}
         <button 
           onClick={handlePunchOut}
           disabled={!isCurrentlySignedIn || punchStatus.loading} 
-          className="mt-2 px-6 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          // Use destructive button styles
+          className="mt-2 px-6 py-2 rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {punchStatus.loading ? 'Processing...' : 'Punch Out'}
         </button>
         {/* Display punch status message */}
         {punchStatus.message && (
-          <p className={`mt-2 text-sm ${punchStatus.error ? 'text-red-600' : 'text-green-600'}`}>
+          // Adjust colors based on theme
+          <p className={`mt-2 text-sm ${punchStatus.error ? 'text-destructive' : 'text-green-500'}`}>
             {punchStatus.message}
           </p>
         )}
         {/* TODO: Calculate Break/Overtime dynamically */}
-        <div className="flex w-full justify-between mt-4 text-xs text-gray-500">
+        <div className="flex w-full justify-between mt-4 text-xs text-muted-foreground">
           <span>Break -- hrs</span>
           <span>Overtime -- hrs</span>
         </div>
       </motion.div>
 
-      {/* Statistics Card - TODO: Calculate Overtime Dynamically */}
-      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.1}} className="col-span-1 bg-white dark:bg-gray-800 rounded-xl shadow p-6 flex flex-col gap-3">
-        <div className="font-semibold text-lg mb-2">Statistics</div>
+      {/* Statistics Card */}
+      <motion.div
+        initial={{opacity:0, y:20}}
+        animate={{opacity:1, y:0}}
+        transition={{delay:0.1}}
+        whileHover={{ scale: 1.02 }} // Add scale on hover
+        // Add glass effect classes, use bg-card, update text colors
+        // Responsive span
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col gap-3 text-foreground transition-shadow hover:shadow-xl"
+      >
+        <div className="font-semibold text-lg mb-2 text-foreground">Statistics</div>
         <div className="flex flex-col gap-2">
-          <StatBar label="Today" value={+hours(todaySecs)} max={8} color="bg-blue-500" />
-          <StatBar label="This Week" value={+hours(weekSecs)} max={40} color="bg-green-500" />
-          <StatBar label="This Month" value={+hours(monthSecs)} max={160} color="bg-yellow-500" />
-          <StatBar label="Remaining" value={Math.max(0, 8-+hours(todaySecs))} max={8} color="bg-gray-400" />
-          <StatBar label="Overtime" value={0} max={8} color="bg-red-500" /> {/* Placeholder */}
+          {/* Use helper function for colors */}
+          <StatBar label="Today" value={+hours(todaySecs)} max={8} color={getStatBarColor('Today')} />
+          <StatBar label="This Week" value={+hours(weekSecs)} max={40} color={getStatBarColor('This Week')} />
+          <StatBar label="This Month" value={+hours(monthSecs)} max={160} color={getStatBarColor('This Month')} />
+          <StatBar label="Remaining" value={Math.max(0, 8-+hours(todaySecs))} max={8} color={getStatBarColor('Remaining')} />
+          <StatBar label="Overtime" value={0} max={8} color={getStatBarColor('Overtime')} /> {/* Placeholder */}
         </div>
       </motion.div>
 
       {/* Today Activity */}
-      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.15}} className="col-span-1 bg-white dark:bg-gray-800 rounded-xl shadow p-6">
-        <div className="font-semibold text-lg mb-2">Today Activity</div>
-        <ol className="border-l-2 border-blue-500 pl-6">
+      <motion.div
+        initial={{opacity:0, y:20}}
+        animate={{opacity:1, y:0}}
+        transition={{delay:0.15}}
+        whileHover={{ scale: 1.02 }} // Add scale on hover
+        // Add glass effect classes, use bg-card, update text colors
+        // Responsive span
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+      >
+        <div className="font-semibold text-lg mb-2 text-foreground">Today Activity</div>
+        {/* Use primary color for border */}
+        <ol className="border-l-2 border-primary pl-6">
           {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).map((l) => (
             <li key={l.id} className="mb-3 relative">
-              <span className={`absolute -left-[7px] top-1 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="font-semibold text-sm ml-2">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {format(new Date(l.timestamp || 0), 'h:mm a')}</span>
+              {/* Adjust signin/signout dot colors */}
+              <span className={`absolute -left-[7px] top-1 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-destructive'}`} />
+              <span className="font-semibold text-sm ml-2 text-foreground">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {format(new Date(l.timestamp || 0), 'h:mm a')}</span>
             </li>
           ))}
-           {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).length === 0 && <li className="text-sm text-gray-500">No activity today.</li>}
+           {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).length === 0 && <li className="text-sm text-muted-foreground">No activity today.</li>}
         </ol>
       </motion.div>
 
-      {/* Attendance List Table - Uses processed attendancePairs */}
-      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.2}} className="col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow p-6">
-        <div className="font-semibold text-lg mb-4">Attendance List</div>
+      {/* Attendance List Table */}
+      <motion.div
+        initial={{opacity:0, y:20}}
+        animate={{opacity:1, y:0}}
+        transition={{delay:0.2}}
+        whileHover={{ scale: 1.01 }} // Slightly less scale for larger card
+        // Add glass effect classes, use bg-card, update text colors
+        // Responsive span (full width on small/medium, 2/3 on xl+)
+        className="col-span-1 md:col-span-2 xl:col-span-2 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+      >
+        <div className="font-semibold text-lg mb-4 text-foreground">Attendance List</div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="bg-gray-100 dark:bg-gray-700">
-                <th className="px-4 py-2 text-left">Date</th>
-                <th className="px-4 py-2 text-left">Punch In</th>
-                <th className="px-4 py-2 text-left">Punch Out</th>
-                <th className="px-4 py-2 text-left">Production</th>
-                <th className="px-4 py-2 text-left">Break</th>
-                <th className="px-4 py-2 text-left">Overtime</th>
+              {/* Use card/muted for header bg, update text */}
+              <tr className="bg-muted/50 dark:bg-muted/50">
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Date</th>
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Punch In</th>
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Punch Out</th>
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Production</th>
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Break</th>
+                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Overtime</th>
               </tr>
             </thead>
             <tbody>
               {attendancePairs.map((pair, idx) => (
-                <tr key={pair.in.id || idx} className="hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors">
-                  <td className="px-4 py-2">{format(new Date(pair.in.timestamp || 0), 'PP')}</td>
-                  <td className="px-4 py-2">{format(new Date(pair.in.timestamp || 0), 'h:mm a')}</td>
-                  <td className="px-4 py-2">{pair.out ? format(new Date(pair.out.timestamp || 0), 'h:mm a') : <span className="text-orange-500">Missing</span>}</td>
-                  <td className="px-4 py-2">{pair.out ? hours(calculateDuration(pair.in, pair.out)) + ' hrs' : '-'}</td>
+                // Use accent for hover, update text
+                <tr key={pair.in.id || idx} className="border-b border-border hover:bg-accent/50 dark:hover:bg-accent/50 transition-colors">
+                  <td className="px-4 py-2 text-foreground">{format(new Date(pair.in.timestamp || 0), 'PP')}</td>
+                  <td className="px-4 py-2 text-foreground">{format(new Date(pair.in.timestamp || 0), 'h:mm a')}</td>
+                  <td className="px-4 py-2 text-foreground">{pair.out ? format(new Date(pair.out.timestamp || 0), 'h:mm a') : <span className="text-orange-500">Missing</span>}</td>
+                  <td className="px-4 py-2 text-foreground">{pair.out ? hours(calculateDuration(pair.in, pair.out)) + ' hrs' : '-'}</td>
                   {/* TODO: Calculate Break/Overtime */}
-                  <td className="px-4 py-2">-- hrs</td>
-                  <td className="px-4 py-2">-- hrs</td>
+                  <td className="px-4 py-2 text-muted-foreground">-- hrs</td>
+                  <td className="px-4 py-2 text-muted-foreground">-- hrs</td>
                 </tr>
               ))}
                {attendancePairs.length === 0 && (
-                 <tr><td colSpan={6} className="text-center py-4 text-gray-500">No attendance data.</td></tr>
+                 <tr><td colSpan={6} className="text-center py-4 text-muted-foreground">No attendance data.</td></tr>
                 )}
             </tbody>
           </table>
         </div>
       </motion.div>
 
-      {/* Daily Records Chart - Uses processed dailyData */}
-      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} transition={{delay:0.25}} className="col-span-1 bg-white dark:bg-gray-800 rounded-xl shadow p-6">
-        <div className="font-semibold text-lg mb-4">Daily Records</div>
+      {/* Daily Records Chart */}
+      <motion.div
+         initial={{opacity:0, y:20}}
+         animate={{opacity:1, y:0}}
+         transition={{delay:0.25}}
+         whileHover={{ scale: 1.02 }} // Add scale on hover
+         // Add glass effect classes, use bg-card, update text colors
+         // Responsive span (full width on small, half on medium, third on xl+)
+         className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+      >
+        <div className="font-semibold text-lg mb-4 text-foreground">Daily Records</div>
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={dailyData}>
-            <XAxis dataKey="date" tickFormatter={(dateStr) => format(new Date(dateStr), 'MMM d')} tick={{fontSize:10}} />
-            <YAxis tick={{fontSize:10}} unit="h" />
-            <Tooltip formatter={(value: number) => [`${value.toFixed(2)} hrs`, 'Hours']} />
-            <Bar dataKey="hours" fill="#2563eb" radius={[4,4,0,0]} />
+            {/* Update tick/tooltip styles */}
+            <XAxis dataKey="date" tickFormatter={(dateStr) => format(new Date(dateStr), 'MMM d')} tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} />
+            <YAxis tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} unit="h" />
+            <Tooltip 
+              formatter={(value: number) => [`${value.toFixed(2)} hrs`, 'Hours']}
+              cursor={{fill: 'var(--color-accent)', fillOpacity: 0.3}}
+              contentStyle={{ backgroundColor: 'var(--color-popover)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
+              labelStyle={{ color: 'var(--color-popover-foreground)' }}
+              itemStyle={{ color: 'var(--color-popover-foreground)' }}
+            />
+            {/* Use primary color for bar */}
+            <Bar dataKey="hours" fill="var(--color-primary)" radius={[4,4,0,0]} />
         </BarChart>
         </ResponsiveContainer>
       </motion.div>
@@ -266,10 +336,12 @@ function StatBar({ label, value, max, color }: { label: string, value: number, m
   return (
     <div>
       <div className="flex justify-between mb-1 text-sm">
-        <span className="font-medium text-gray-700 dark:text-gray-300">{label}</span>
-        <span className="text-gray-600 dark:text-gray-400">{value.toFixed(2)} / {max} hrs</span>
+        {/* Update text colors */}
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="text-muted-foreground">{value.toFixed(2)} / {max} hrs</span>
       </div>
-      <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      {/* Use muted for background bar */}
+      <div className="w-full h-2 bg-muted/50 dark:bg-muted/50 rounded-full overflow-hidden">
         <div
            className={`h-2 rounded-full ${color} transition-all duration-500 ease-out`}
            style={{ width: `${percentage}%` }}

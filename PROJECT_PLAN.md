@@ -139,11 +139,13 @@ This outlines the planned steps to build the application, updated based on recen
 29. ✅ **Build User Management Page:** `app/(app)/admin/employees/page.tsx` 
     *   ✅ Basic employee list table implemented with pagination.
     *   ✅ Add Employee form and server action implemented (`/admin/employees/new`).
-    *   ⏳ Edit/View Employee: UI placeholders present, implementation planned.
-    *   ⏳ Filtering/sorting to employee list: Planned.
+    *   ✅ Edit/View Employee: UI placeholders present, implementation completed.
+    *   ✅ Filtering/sorting to employee list: Implemented.
     *   ✅ Admin: Edit Attendance Log (`/admin/logs/[id]`) page created with working edit form.
-30. **Build Settings Page (Placeholder):** `/admin/settings`
-31. **NEW:** Build Reports Page: `/admin/reports`
+30. ✅ **Build Settings Page:** `/admin/settings` (Basic save/load implemented)
+31. ✅ **NEW:** Build Reports Page: `/admin/reports` (Filtering and aggregation implemented)
+    *   ⏳ Export functionality deferred.
+31.5. ✅ **NEW:** Build QR Code Management Page: `/admin/qr-codes` (Generate, display, save, delete)
 
 **Phase 7: UI Polishing & Refinement (Needs Implementation)**
 

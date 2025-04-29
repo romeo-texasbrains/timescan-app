@@ -21,6 +21,7 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination" // Assuming shadcn pagination exists/is added
 import { Button } from '@/components/ui/button'; // Assuming shadcn button exists/is added
+import clsx from 'clsx'; // Correct import for clsx
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 
@@ -63,76 +64,75 @@ export default async function EmployeesPage({ searchParams }: { searchParams?: {
   const totalPages = Math.ceil((count || 0) / ITEMS_PER_PAGE);
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold">Manage Employees</h1>
+    <div className="space-y-6 text-foreground">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl sm:text-3xl font-bold">Manage Employees</h1>
         <Link href="/admin/employees/new">
-           <Button>Add Employee</Button> 
+           <Button className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto">Add Employee</Button> 
         </Link>
       </div>
 
-      <div className="overflow-x-auto shadow-md rounded-lg">
-        <Table>
-          <TableCaption>A list of all registered employees.</TableCaption>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Full Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Joined Date</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {profiles.length > 0 ? (
-              profiles.map((profile) => (
-                <TableRow key={profile.id}>
-                  <TableCell className="font-medium">{profile.full_name || '-'}</TableCell>
-                  <TableCell>{profile.email}</TableCell>
-                  <TableCell className="capitalize">{profile.role}</TableCell>
-                  <TableCell>{format(new Date(profile.created_at), 'PPP')}</TableCell>
-                  <TableCell className="text-right">
-                    {/* Update Edit/View links */}
-                    <Link href={`/admin/employees/${profile.id}`}>
-                      <Button variant="outline" size="sm" className="mr-2">View/Edit</Button>
-                    </Link>
-                    {/* Maybe add a separate delete button later if needed */}
-                  </TableCell>
+      <div className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 shadow-lg rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+            <Table>
+              <TableCaption className="py-4 text-muted-foreground">A list of all registered employees.</TableCaption>
+              <TableHeader className="bg-muted/20 dark:bg-muted/20">
+                <TableRow>
+                  <TableHead className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Full Name</TableHead>
+                  <TableHead className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</TableHead>
+                  <TableHead className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</TableHead>
+                  <TableHead className="px-4 sm:px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Joined Date</TableHead>
+                  <TableHead className="px-4 sm:px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</TableHead>
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  No employees found.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody className="divide-y divide-border/50">
+                {profiles.length > 0 ? (
+                  profiles.map((profile) => (
+                    <TableRow key={profile.id} className="hover:bg-accent/30 dark:hover:bg-accent/30 transition-colors">
+                      <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap font-medium text-foreground">{profile.full_name || '-'}</TableCell>
+                      <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap text-muted-foreground">{profile.email}</TableCell>
+                      <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap capitalize text-muted-foreground">{profile.role}</TableCell>
+                      <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap text-muted-foreground">{format(new Date(profile.created_at), 'PP')}</TableCell>
+                      <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
+                        <Link href={`/admin/employees/${profile.id}`}>
+                          <Button variant="outline" size="sm" className="bg-card/70 hover:bg-accent/50 border-border/50">View/Edit</Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                      No employees found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+        </div>
       </div>
 
-      {/* Pagination */} 
       {totalPages > 1 && (
-        <Pagination>
-          <PaginationContent>
-            {safeCurrentPage > 1 && (
-              <PaginationItem>
-                <PaginationPrevious href={`?page=${safeCurrentPage - 1}`} />
-              </PaginationItem>
-            )}
-            {/* Basic pagination display - could be enhanced */}
+        <Pagination className="pt-4">
+          <PaginationContent className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 shadow-md rounded-lg p-2">
             <PaginationItem>
-                 <span className="px-4 py-2 text-sm">Page {safeCurrentPage} of {totalPages}</span>
+              <PaginationPrevious 
+                 href={safeCurrentPage > 1 ? `?page=${safeCurrentPage - 1}` : '#'}
+                 className={clsx(safeCurrentPage <= 1 && 'pointer-events-none text-muted-foreground/50', 'hover:bg-accent/50')}
+               />
+            </PaginationItem>
+            <PaginationItem>
+                 <span className="px-4 py-2 text-sm font-medium text-muted-foreground">Page {safeCurrentPage} of {totalPages}</span>
              </PaginationItem>
-            {safeCurrentPage < totalPages && (
-              <PaginationItem>
-                <PaginationNext href={`?page=${safeCurrentPage + 1}`} />
-              </PaginationItem>
-            )}
+            <PaginationItem>
+              <PaginationNext 
+                 href={safeCurrentPage < totalPages ? `?page=${safeCurrentPage + 1}` : '#'}
+                 className={clsx(safeCurrentPage >= totalPages && 'pointer-events-none text-muted-foreground/50', 'hover:bg-accent/50')}
+              />
+            </PaginationItem>
           </PaginationContent>
         </Pagination>
       )}
-      {/* Removed the misplaced filtering Select block from here */}
     </div>
   );
 }

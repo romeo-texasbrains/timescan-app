@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Database } from '@/lib/supabase/database.types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, Settings, BarChart } from 'lucide-react';
+import clsx from 'clsx';
 
 // Define types based on the actual SELECT query
 type ProfileSelection = Pick<Database['public']['Tables']['profiles']['Row'], 'full_name' | 'email'>;
@@ -86,46 +87,55 @@ export default async function AdminPage({ searchParams }: { searchParams?: { [ke
   const users = usersData || []; // Use fetched users
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      {/* Page Title */}
-      <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+    <div className="container mx-auto px-4 py-6 space-y-8 text-foreground">
+      <h1 className="text-3xl font-bold mb-4">Admin Dashboard</h1>
 
-      {/* Quick Links Section */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Link href="/admin/employees">
-          <Card className="hover:shadow-lg transition-shadow duration-200 cursor-pointer">
+      {/* Quick Links Section - Adjust grid and gap */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <Link href="/admin/employees" className="block group">
+          <Card className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 rounded-xl shadow-lg p-4 group-hover:shadow-xl group-hover:border-white/10 transition-all duration-200 h-full hover:scale-[1.03]">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Manage Employees</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold text-foreground">Manage Employees</CardTitle>
+              <Users className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 View, edit, and manage employee profiles and roles.
               </p>
             </CardContent>
           </Card>
         </Link>
-        <Link href="/admin/reports" className="pointer-events-none"> {/* Disable link for now */}
-          <Card className="hover:shadow-lg transition-shadow duration-200 cursor-not-allowed opacity-60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Generate Reports</CardTitle>
-              <BarChart className="h-4 w-4 text-muted-foreground" />
+        <Link href="/admin/qr-codes" className="block group">
+          <Card className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 rounded-xl shadow-lg p-4 group-hover:shadow-xl group-hover:border-white/10 transition-all duration-200 h-full hover:scale-[1.03]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-semibold text-foreground">Manage QR Codes</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">Generate, view, and manage QR codes for attendance scanning locations.</p>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/admin/reports" className="block group pointer-events-none">
+          <Card className="bg-card/50 dark:bg-card/50 backdrop-blur-sm border border-white/5 rounded-xl shadow-lg p-4 cursor-not-allowed opacity-50 h-full">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-base font-semibold text-foreground">Generate Reports</CardTitle>
+              <BarChart className="h-5 w-5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
                 (Coming Soon) Generate attendance summary reports.
               </p>
             </CardContent>
           </Card>
         </Link>
-        <Link href="/admin/settings" className="pointer-events-none"> {/* Disable link for now */}
-           <Card className="hover:shadow-lg transition-shadow duration-200 cursor-not-allowed opacity-60">
+        <Link href="/admin/settings" className="block group pointer-events-none">
+           <Card className="bg-card/50 dark:bg-card/50 backdrop-blur-sm border border-white/5 rounded-xl shadow-lg p-4 cursor-not-allowed opacity-50 h-full">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Settings</CardTitle>
-              <Settings className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base font-semibold text-foreground">Settings</CardTitle>
+              <Settings className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 (Coming Soon) Configure application settings.
               </p>
             </CardContent>
@@ -133,22 +143,23 @@ export default async function AdminPage({ searchParams }: { searchParams?: { [ke
         </Link>
       </div>
 
-      {/* Existing Filters Form */}
-      <form method="GET" action="/admin" className="bg-gray-50 dark:bg-gray-800 p-4 rounded-md">
-        <input type="hidden" name="page" value={safeCurrentPage} /> 
-        <h2 className="text-lg font-semibold mb-3">Filter Attendance Logs</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+      {/* Filter Form - Adjust grid and styles */}
+      <form method="GET" action="/admin"
+        className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 p-6 rounded-xl shadow-lg"
+      >
+        <h2 className="text-xl font-semibold mb-4 text-foreground">Filter Attendance Logs</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
           <div>
-            <label htmlFor="dateRange" className="block text-sm font-medium mb-1">Date Range</label>
-            <select id="dateRange" name="dateRange" defaultValue={selectedDateRange} className="w-full rounded-md border-gray-300 shadow-sm p-2 dark:bg-gray-700 dark:border-gray-600">
+            <label htmlFor="dateRange" className="block text-sm font-medium mb-1 text-muted-foreground">Date Range</label>
+            <select id="dateRange" name="dateRange" defaultValue={selectedDateRange} className="w-full rounded-md border border-border/50 bg-input/50 p-2 focus:ring-primary focus:border-primary text-foreground backdrop-blur-sm">
               <option value="all">All Time</option>
               <option value="last7days">Last 7 days</option>
               <option value="last30days">Last 30 days</option>
             </select>
           </div>
           <div>
-            <label htmlFor="user" className="block text-sm font-medium mb-1">User</label>
-            <select id="user" name="user" defaultValue={selectedUser} className="w-full rounded-md border-gray-300 shadow-sm p-2 dark:bg-gray-700 dark:border-gray-600">
+            <label htmlFor="user" className="block text-sm font-medium mb-1 text-muted-foreground">User</label>
+            <select id="user" name="user" defaultValue={selectedUser} className="w-full rounded-md border border-border/50 bg-input/50 p-2 focus:ring-primary focus:border-primary text-foreground backdrop-blur-sm">
               <option value="all">All Users</option>
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.full_name}</option>
@@ -156,66 +167,90 @@ export default async function AdminPage({ searchParams }: { searchParams?: { [ke
             </select>
           </div>
           <div>
-            <label htmlFor="eventType" className="block text-sm font-medium mb-1">Event Type</label>
-            <select id="eventType" name="eventType" defaultValue={selectedEventType} className="w-full rounded-md border-gray-300 shadow-sm p-2 dark:bg-gray-700 dark:border-gray-600">
+            <label htmlFor="eventType" className="block text-sm font-medium mb-1 text-muted-foreground">Event Type</label>
+            <select id="eventType" name="eventType" defaultValue={selectedEventType} className="w-full rounded-md border border-border/50 bg-input/50 p-2 focus:ring-primary focus:border-primary text-foreground backdrop-blur-sm">
               <option value="all">All Types</option>
               <option value="signin">Sign In</option>
               <option value="signout">Sign Out</option>
             </select>
           </div>
-          <div>
-             <button type="submit" className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow-sm font-medium">
+          <div className="sm:col-span-2 lg:col-span-1">
+             <button type="submit" className="w-full px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-md shadow font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary transition-transform hover:scale-[1.02]">
                Apply Filters
              </button>
           </div>
         </div>
       </form>
       
-      {/* Existing Attendance Records Table */}
-      <div className="overflow-x-auto shadow-md rounded-lg">
-         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-           <thead className="bg-gray-50 dark:bg-gray-800">
-             <tr>
-               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date & Time</th>
-               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Employee</th>
-               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Event Type</th>
-               <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-             </tr>
-           </thead>
-           <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
-             {typedLogs.length > 0 ? (
-               typedLogs.map((log) => {
-                 const profile = Array.isArray(log.profiles) ? log.profiles[0] : log.profiles; // Handle potential single object
-                 return (
-                 <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{format(new Date(log.timestamp || 0), 'MMM d, yyyy h:mm a')}</td>
-                   <td className="px-6 py-4 whitespace-nowrap">
-                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{profile?.full_name || 'Unknown User'}</div>
-                     <div className="text-sm text-gray-500 dark:text-gray-400">{profile?.email || '-'}</div>
-                   </td>
-                   <td className="px-6 py-4 whitespace-nowrap">
-                     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${log.event_type === 'signin' ? 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'}`}>{log.event_type}</span>
-                   </td>
-                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                     <Link href={`/admin/logs/${log.id}`} className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-3">Edit</Link>
-                     <button disabled className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed">Delete</button>
-                   </td>
+      {/* Attendance Records Table - Refine styles */}
+      <div className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/5 overflow-hidden shadow-lg rounded-xl">
+         <div className="overflow-x-auto">
+             <table className="min-w-full divide-y divide-border/50">
+               <thead className="bg-muted/20 dark:bg-muted/20">
+                 <tr>
+                   <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date & Time</th>
+                   <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Employee</th>
+                   <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Event Type</th>
+                   <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                  </tr>
-                 );
-               })
-             ) : (
-               <tr><td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">No attendance records found matching filters.</td></tr>
-             )}
-           </tbody>
-         </table>
+               </thead>
+               <tbody className="divide-y divide-border/50">
+                 {typedLogs.length > 0 ? (
+                   typedLogs.map((log) => {
+                     const profile = Array.isArray(log.profiles) ? log.profiles[0] : log.profiles;
+                     return (
+                     <tr key={log.id} className="hover:bg-accent/30 dark:hover:bg-accent/30 transition-colors">
+                       <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{format(new Date(log.timestamp || 0), 'MMM d, yyyy h:mm a')}</td>
+                       <td className="px-6 py-4 whitespace-nowrap">
+                         <div className="text-sm font-medium text-foreground">{profile?.full_name || 'Unknown User'}</div>
+                         <div className="text-sm text-muted-foreground">{profile?.email || '-'}</div>
+                       </td>
+                       <td className="px-6 py-4 whitespace-nowrap">
+                         <span className={`px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${log.event_type === 'signin' ? 'bg-green-900/70 text-green-100' : 'bg-red-900/70 text-red-100'}`}>{log.event_type}</span>
+                       </td>
+                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
+                         <Link href={`/admin/logs/${log.id}`} className="text-primary/90 hover:text-primary font-medium">Edit</Link>
+                         <button disabled className="text-destructive/70 hover:text-destructive disabled:opacity-50 disabled:cursor-not-allowed font-medium">Delete</button>
+                       </td>
+                     </tr>
+                     );
+                   })
+                 ) : (
+                   <tr><td colSpan={4} className="px-6 py-4 text-center text-sm text-muted-foreground">No attendance records found matching filters.</td></tr>
+                 )}
+               </tbody>
+             </table>
+         </div>
       </div>
       
-      {/* Existing Pagination Controls - Use safeCurrentPage */}
+      {/* Pagination Controls - Refine Styles */}
       {totalPages > 1 && (
-        <div className="flex justify-between items-center mt-4">
-            <Link href={`?page=${safeCurrentPage - 1}&user=${selectedUser}&dateRange=${selectedDateRange}&eventType=${selectedEventType}`} className={`px-4 py-2 border rounded-md text-sm ${safeCurrentPage <= 1 ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`} aria-disabled={safeCurrentPage <= 1} tabIndex={safeCurrentPage <= 1 ? -1 : undefined}>Previous</Link>
-            <span className="text-sm text-gray-700">Page {safeCurrentPage} of {totalPages} ({(count || 0)} total records)</span>
-            <Link href={`?page=${safeCurrentPage + 1}&user=${selectedUser}&dateRange=${selectedDateRange}&eventType=${selectedEventType}`} className={`px-4 py-2 border rounded-md text-sm ${safeCurrentPage >= totalPages ? 'text-gray-400 bg-gray-100 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`} aria-disabled={safeCurrentPage >= totalPages} tabIndex={safeCurrentPage >= totalPages ? -1 : undefined}>Next</Link>
+        <div className="flex flex-col sm:flex-row justify-between items-center mt-6 text-sm gap-3">
+            <Link 
+              href={`?page=${safeCurrentPage - 1}&user=${selectedUser}&dateRange=${selectedDateRange}&eventType=${selectedEventType}`} 
+              className={clsx(
+                "px-4 py-2 border border-border/50 rounded-md font-medium transition-colors", 
+                safeCurrentPage <= 1 
+                  ? 'text-muted-foreground bg-muted/30 cursor-not-allowed' 
+                  : 'bg-card/70 hover:bg-accent/50 text-foreground'
+              )}
+              aria-disabled={safeCurrentPage <= 1} 
+              tabIndex={safeCurrentPage <= 1 ? -1 : undefined}
+            >Previous</Link>
+            
+            <span className="text-muted-foreground">Page {safeCurrentPage} of {totalPages} ({(count || 0)} total records)</span>
+            
+            <Link 
+              href={`?page=${safeCurrentPage + 1}&user=${selectedUser}&dateRange=${selectedDateRange}&eventType=${selectedEventType}`} 
+              className={clsx(
+                "px-4 py-2 border border-border/50 rounded-md font-medium transition-colors", 
+                safeCurrentPage >= totalPages 
+                  ? 'text-muted-foreground bg-muted/30 cursor-not-allowed' 
+                  : 'bg-card/70 hover:bg-accent/50 text-foreground'
+              )}
+              aria-disabled={safeCurrentPage >= totalPages} 
+              tabIndex={safeCurrentPage >= totalPages ? -1 : undefined}
+            >Next</Link>
         </div>
       )}
     </div>
