@@ -49,7 +49,7 @@ export async function middleware(request: NextRequest) {
 
 // Keep original config
 export const config = {
-  runtime: 'nodejs',
+  runtime: 'edge',
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
