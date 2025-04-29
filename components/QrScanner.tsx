@@ -31,7 +31,7 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
   }, [externalStatus, internalStatus]);
 
   useEffect(() => {
-    if (finalStatus === 'idle' && !finalMessage) {
+    if (finalStatus === 'idle' && !externalMessage) {
         setInternalMessage('Point your camera at the QR code.');
     }
 
@@ -97,8 +97,8 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
       <div
         id="qr-reader"
         ref={qrRef}
-        style={{ width: 300, height: 300 }}
         className={clsx(
+          "w-full max-w-[300px] sm:max-w-[400px] aspect-square",
           "relative rounded shadow border-2 bg-black overflow-hidden",
           finalStatus === 'idle' && 'border-gray-300 dark:border-gray-600',
           finalStatus === 'loading' && 'border-blue-500 animate-pulse',
@@ -106,20 +106,22 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
           finalStatus === 'error' && 'border-red-500'
         )}
       >
-        {finalStatus === 'loading' && (
-            <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                <p className="text-white text-lg font-semibold">Processing...</p>
+        {(finalStatus === 'loading' || (finalStatus === 'error' && finalMessage)) && (
+            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4">
+                <p className="text-white text-center text-lg font-semibold">
+                  {finalStatus === 'loading' ? 'Processing...' : finalMessage}
+                </p>
             </div>
         )}
       </div>
       <p className={clsx(
-          "text-xs mt-3 h-4",
+          "text-xs mt-3 h-4 text-center",
           finalStatus === 'idle' && 'text-gray-500 dark:text-gray-400',
           finalStatus === 'loading' && 'text-blue-500 animate-pulse',
           finalStatus === 'success' && 'text-green-600 font-medium',
           finalStatus === 'error' && 'text-red-600 font-medium'
         )}>
-          {finalMessage || (finalStatus === 'idle' ? 'Point your camera at the QR code.' : '')}
+          {(finalStatus === 'idle' && !externalMessage) ? internalMessage : (finalStatus !== 'idle' ? finalMessage : '')}
         </p>
     </div>
   );

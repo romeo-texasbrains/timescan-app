@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
-import { useState, useRef, useEffect } from 'react' // Import useState, useRef, and useEffect
+import { useState, useRef, useEffect, useCallback } from 'react' // Import useState, useRef, and useEffect
 import QRCode from 'react-qr-code' // Import the QR code component
 import { saveAs } from 'file-saver'; // For downloading
 import { createClient } from '@/lib/supabase/client' // Use client for potential saves later
@@ -36,7 +36,7 @@ export default function QrCodeManagementPage() {
   const [isDeleting, setIsDeleting] = useState<number | null>(null); // Store ID being deleted
 
   // Function to load saved configurations
-  const loadConfigs = async () => {
+  const loadConfigs = useCallback(async () => {
     setIsLoading(true);
     toast.dismiss(); // Clear toasts on load
     const { data, error } = await supabase
@@ -52,12 +52,12 @@ export default function QrCodeManagementPage() {
       setSavedConfigs(data || []);
     }
     setIsLoading(false);
-  };
+  }, [supabase]); // Depend on supabase client instance
 
   // Load configs on component mount
   useEffect(() => {
     loadConfigs();
-  }, [loadConfigs]); // Add loadConfigs to dependencies
+  }, [loadConfigs]); // Now this dependency is stable
 
   const handleGenerate = () => {
     if (!locationIdentifier.trim()) {
