@@ -1,11 +1,13 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HomeIcon, QrCodeIcon, ClockIcon, UsersIcon, Cog6ToothIcon, ChartBarIcon, DocumentTextIcon, ArrowLeftOnRectangleIcon, ChevronDoubleLeftIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import { logoutAction } from '@/app/actions/authActions';
+import { toast } from 'sonner';
 
 // Define valid roles
 type UserRole = 'user' | 'manager' | 'admin';
@@ -49,10 +51,11 @@ const textVariants = {
 // Simple check for mobile width (e.g., < 768px)
 const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth < 768;
 
-export default function Sidebar({ role = 'user', onLogout }: { role?: UserRole, onLogout?: () => void }) {
+export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
   const pathname = usePathname();
   const links = sections[role] || sections.user;
   const [isCollapsed, setIsCollapsed] = useState(isMobileWidth());
+  const [isLoggingOut, startLogoutTransition] = useTransition();
 
   useEffect(() => {
     const checkWidth = () => {
@@ -63,6 +66,18 @@ export default function Sidebar({ role = 'user', onLogout }: { role?: UserRole, 
     checkWidth();
     return () => window.removeEventListener('resize', checkWidth);
   }, []);
+
+  const handleLogoutClick = () => {
+    startLogoutTransition(async () => {
+      try {
+        await logoutAction();
+        toast.info("Logging out...");
+      } catch (error) {
+        console.error("Logout failed:", error);
+        toast.error("Logout failed. Please try again.");
+      }
+    });
+  };
 
   return (
     <motion.aside
@@ -163,15 +178,17 @@ export default function Sidebar({ role = 'user', onLogout }: { role?: UserRole, 
       {/* Footer Section - Logout */}
       <div className={clsx("mt-auto border-t border-white/10", isCollapsed ? "px-0 py-3" : "px-4 py-4")}>
         <button
-          onClick={onLogout}
+          onClick={handleLogoutClick}
           title={isCollapsed ? "Logout" : undefined}
+          disabled={isLoggingOut}
           className={clsx(
             "flex items-center gap-2 w-full py-2.5 rounded-lg transition-all duration-200 ease-in-out font-medium",
             "bg-sidebar-accent/80 hover:bg-sidebar-accent text-sidebar-accent-foreground",
-             isCollapsed ? 'px-6 justify-center hover:scale-105' : 'px-4 hover:translate-x-1'
+             isCollapsed ? 'px-6 justify-center hover:scale-105' : 'px-4 hover:translate-x-1',
+             isLoggingOut && 'opacity-50 cursor-not-allowed'
           )}
         >
-          <ArrowLeftOnRectangleIcon className={clsx("h-5 w-5 flex-shrink-0")} />
+          <ArrowLeftOnRectangleIcon className={clsx("h-5 w-5 flex-shrink-0", isLoggingOut && 'animate-pulse')} />
            <AnimatePresence>
             {!isCollapsed && (
                <motion.span
@@ -181,7 +198,7 @@ export default function Sidebar({ role = 'user', onLogout }: { role?: UserRole, 
                 exit="collapsed"
                 className="whitespace-nowrap"
                >
-                Logout
+                {isLoggingOut ? 'Logging out...' : 'Logout'}
               </motion.span>
             )}
           </AnimatePresence>

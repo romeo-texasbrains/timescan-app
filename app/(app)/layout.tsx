@@ -70,10 +70,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Sidebar now needs user info passed as props */}
       <Sidebar
         role={userRole}
-        // Note: Direct logout via client Supabase won't work here.
-        // Needs a Server Action or client component wrapper for logout.
-        // Placeholder for now:
-        onLogout={() => { 'use server'; console.log('Logout triggered - Needs Server Action'); redirect('/logout-action') /* Example */ }}
       />
 
       {/* Wrap MainContentWrapper with TimezoneProvider */}
