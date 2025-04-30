@@ -1,11 +1,11 @@
 import { createClient } from '@/lib/supabase/server' // USE SERVER CLIENT FOR LAYOUT
 import { redirect } from 'next/navigation'
 import Sidebar from '@/components/Sidebar'
-import Topbar from '@/components/Topbar'
 import { cookies } from 'next/headers'
 import { Database } from '@/lib/supabase/database.types'
 import { Toaster } from 'sonner' // Correct import path for sonner
 import { TimezoneProvider } from '@/context/TimezoneContext' // Import the Provider
+import MainContentWrapper from '@/components/MainContentWrapper' // Import the new component
 
 // Define role type here as well
 type UserRole = 'user' | 'manager' | 'admin';
@@ -83,49 +83,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   );
 }
 
-// --- Client Component Wrapper for Main Content ---
-'use client';
-import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
-
-// Simple check for mobile width (copied from Sidebar)
-const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth < 768;
-
-function MainContentWrapper({ children, userEmail, timezone }: {
-  children: React.ReactNode,
-  userEmail: string,
-  timezone: string
-}) {
-  const pathname = usePathname();
-  // State to track sidebar collapse status
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(isMobileWidth());
-
-  useEffect(() => {
-    // Listener to sync sidebar collapse state for padding adjustment
-    const handleResize = () => {
-       setIsSidebarCollapsed(isMobileWidth());
-    };
-    window.addEventListener('resize', handleResize);
-    handleResize(); // Initial check
-
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Update collapse state on route change if needed (optional)
-  useEffect(() => {
-    setIsSidebarCollapsed(isMobileWidth());
-  }, [pathname]);
-
-  return (
-     <div
-         className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'ml-20' : 'ml-64'} overflow-x-hidden`}
-        >
-        {/* Topbar can now potentially use useTimezone() hook instead of prop */}
-        <Topbar userEmail={userEmail} timezone={timezone} />
-        <main className="flex-1 p-4 sm:p-6 md:p-8 lg:p-10">
-          {/* Children will inherit the TimezoneContext */}
-          {children}
-        </main>
-      </div>
-  )
-}
+// --- Client Component Wrapper for Main Content (REMOVED FROM HERE) ---
+// All the code previously here ( MainContentWrapper function, imports for useState/useEffect/usePathname, isMobileWidth) has been moved to components/MainContentWrapper.tsx
