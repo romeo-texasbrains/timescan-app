@@ -152,7 +152,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // Send placeholder data - API validation allows non-empty string
-        body: JSON.stringify({ qrCodeData: 'manual_dashboard_punch' }), 
+        body: JSON.stringify({ qrCodeData: 'TIMESCAN-LOC:manual_dashboard_punch' }),
       });
       const data = await response.json();
       if (!response.ok) {

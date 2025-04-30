@@ -14,6 +14,7 @@ interface QrScannerProps {
 const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScannerProps) => {
   const qrRef = useRef<HTMLDivElement>(null);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const hasScannedRef = useRef(false);
 
   const [internalStatus, setInternalStatus] = useState<ScanStatus>('idle');
   const [internalMessage, setInternalMessage] = useState<string>('');
@@ -41,12 +42,16 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
     const html5QrCode = new Html5Qrcode(elementId);
     html5QrCodeRef.current = html5QrCode;
 
-    const qrCodeSuccessCallback = (decodedText: string) => {
-      if (finalStatus !== 'loading') {
-        setInternalStatus('loading');
-        setInternalMessage('Processing scan...');
-        onScan(decodedText);
+    const qrCodeSuccessCallback = async (decodedText: string) => {
+      if (hasScannedRef.current) return;
+      hasScannedRef.current = true;
+      setInternalStatus('loading');
+      setInternalMessage('Processing scan...');
+      if (html5QrCodeRef.current) {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current.clear();
       }
+      onScan(decodedText);
     };
 
     const qrCodeErrorCallback = (error: any) => {
