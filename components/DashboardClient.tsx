@@ -31,6 +31,49 @@ function calculateDuration(startLog: AttendanceLog, endLog: AttendanceLog): numb
   return endTime > startTime ? (endTime - startTime) / 1000 : 0;
 }
 
+// --- New Duration Formatting Helpers ---
+function formatDuration(totalSeconds: number): string {
+  if (totalSeconds < 0) totalSeconds = 0;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+
+  const parts: string[] = [];
+  if (hours > 0) {
+    parts.push(`${hours}hr`);
+  }
+  if (minutes > 0 || (hours > 0 && seconds >= 0)) { // Show minutes if hours exist or if minutes>0
+    parts.push(`${minutes}min`);
+  }
+   // Always show seconds if total duration is < 1 min, or if hours/minutes are shown
+  if (seconds >= 0 && (hours > 0 || minutes > 0 || totalSeconds < 60)) {
+       parts.push(`${seconds}sec`);
+  }
+
+  // If totalSeconds is exactly 0, parts might be empty, so ensure "0sec"
+  if (parts.length === 0) {
+        return '0sec';
+   }
+
+  return parts.join(' ');
+}
+
+// Simpler tooltip format function
+function formatDurationTooltip(totalSeconds: number): string {
+    if (totalSeconds < 0) totalSeconds = 0;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+        return `${minutes}m`;
+    } else {
+        return `${Math.floor(totalSeconds)}s`;
+    }
+}
+// --- End New Helpers ---
+
 // --- Dynamic Wrapper for Pie Chart ---
 const DynamicPieChartComponent = dynamic(() => Promise.resolve(InnerPieChart), {
   ssr: false,
@@ -166,7 +209,6 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
     }
   }
 
-  const hours = (secs: number) => (secs / 3600).toFixed(2);
   const dailyData = Object.entries(dailyMap)
     .map(([date, secs]) => ({ date, hours: +(secs / 3600).toFixed(2) }))
     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Sort daily data for chart
@@ -180,6 +222,13 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
     currentSessionDurationSecs = (currentTime.getTime() - new Date(lastSignInLog.timestamp).getTime()) / 1000;
   }
   const finalTodaySecs = todaySecs + currentSessionDurationSecs; // Total today's time including ongoing
+  const finalWeekSecs = weekSecs + (isSameDay(now, todayStart) ? currentSessionDurationSecs : 0); // Add ongoing to week if today
+  const finalMonthSecs = monthSecs + (isSameDay(now, todayStart) ? currentSessionDurationSecs : 0); // Add ongoing to month if today
+
+  // Calculate decimal hours for components expecting numbers
+  const finalTodayHrsDecimal = finalTodaySecs / 3600;
+  const weekHrsDecimal = finalWeekSecs / 3600;
+  const monthHrsDecimal = finalMonthSecs / 3600;
 
   // --- Formatting Outputs ---
   const formatTime = (date: Date | string | number | null | undefined) => {
@@ -242,7 +291,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         <div className="text-muted-foreground text-sm mb-2">{formatFullDate(currentTime)}</div>
         {/* TODO: Update PieChart colors to match theme */}
         <DynamicPieChartComponent todaySecs={finalTodaySecs} />
-        <div className="text-3xl font-bold my-2 text-foreground">{hours(finalTodaySecs)} hrs</div>
+        <div className="text-3xl font-bold my-2 text-foreground">{formatDuration(finalTodaySecs)}</div>
         {/* Punch Out Button with Confirmation Dialog */}
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -258,7 +307,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm Punch Out</AlertDialogTitle>
               <AlertDialogDescription>
-                You have worked approximately <span className="font-semibold">{hours(finalTodaySecs)} hours</span> today.
+                You have worked approximately <span className="font-semibold">{formatDuration(finalTodaySecs)}</span> today.
                 Are you sure you want to punch out now?
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -279,8 +328,8 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         )}
         {/* TODO: Calculate Break/Overtime dynamically */}
         <div className="flex w-full justify-between mt-4 text-xs text-muted-foreground">
-          <span>Break -- hrs</span>
-          <span>Overtime -- hrs</span>
+          <span>Break --</span>
+          <span>Overtime --</span>
         </div>
       </motion.div>
 
@@ -297,11 +346,11 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         <div className="font-semibold text-lg mb-2 text-foreground">Statistics</div>
         <div className="flex flex-col gap-2">
           {/* Use helper function for colors */}
-          <StatBar label="Today" value={+hours(finalTodaySecs)} max={8} color={getStatBarColor('Today')} />
-          <StatBar label="This Week" value={+hours(weekSecs)} max={40} color={getStatBarColor('This Week')} />
-          <StatBar label="This Month" value={+hours(monthSecs)} max={160} color={getStatBarColor('This Month')} />
-          <StatBar label="Remaining" value={Math.max(0, 8 - +hours(finalTodaySecs))} max={8} color={getStatBarColor('Remaining')} />
-          <StatBar label="Overtime" value={0} max={8} color={getStatBarColor('Overtime')} /> {/* Placeholder */}
+          <StatBar label="Today" value={finalTodayHrsDecimal} max={8} color={getStatBarColor('Today')} />
+          <StatBar label="This Week" value={weekHrsDecimal} max={40} color={getStatBarColor('This Week')} />
+          <StatBar label="This Month" value={monthHrsDecimal} max={160} color={getStatBarColor('This Month')} />
+          <StatBar label="Remaining" value={Math.max(0, 8 - finalTodayHrsDecimal)} max={8} color={getStatBarColor('Remaining')} />
+          <StatBar label="Overtime" value={Math.max(0, finalTodayHrsDecimal - 8)} max={8} color={getStatBarColor('Overtime')} />
         </div>
       </motion.div>
 
@@ -362,10 +411,11 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
                   <td className="px-4 py-2 text-muted-foreground">{formatDate(pair.in.timestamp)}</td>
                   <td className="px-4 py-2 text-foreground">{formatTime(pair.in.timestamp)}</td>
                   <td className="px-4 py-2 text-foreground">{pair.out ? formatTime(pair.out.timestamp) : <span className="text-orange-500">Missing</span>}</td>
-                  <td className="px-4 py-2 text-foreground">{pair.out ? hours(calculateDuration(pair.in, pair.out)) + ' hrs' : '-'}</td>
+                  {/* Use new formatDuration function */}
+                  <td className="px-4 py-2 text-foreground">{pair.out ? formatDuration(calculateDuration(pair.in, pair.out)) : '-'}</td>
                   {/* TODO: Calculate Break/Overtime */}
-                  <td className="px-4 py-2 text-muted-foreground">-- hrs</td>
-                  <td className="px-4 py-2 text-muted-foreground">-- hrs</td>
+                  <td className="px-4 py-2 text-muted-foreground">--</td>
+                  <td className="px-4 py-2 text-muted-foreground">--</td>
                 </tr>
               ))}
                {attendancePairs.length === 0 && (
@@ -395,11 +445,13 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
             }} tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} />
             <YAxis tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} unit="h" />
             <Tooltip
-              formatter={(value: number) => [`${value.toFixed(2)} hrs`, 'Hours']}
-              labelFormatter={(label) => {
-                  try { return formatInTimeZone(new Date(label + 'T00:00:00'), timezone, 'PP'); }
-                  catch { return 'Invalid Date'; }
-              }}
+              // Use simpler tooltip formatter
+              formatter={(value: number, name: string, props: any) => {
+                  // The raw value here is decimal hours from dailyData
+                  // Convert back to seconds to use formatDurationTooltip
+                  const seconds = value * 3600; 
+                  return [formatDurationTooltip(seconds), 'Duration']; 
+              }} 
               cursor={{fill: 'var(--color-accent)', fillOpacity: 0.3}}
               contentStyle={{ backgroundColor: 'var(--color-popover)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
               labelStyle={{ color: 'var(--color-popover-foreground)' }}
@@ -416,12 +468,16 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
 
 function StatBar({ label, value, max, color }: { label: string, value: number, max: number, color: string }) {
   const percentage = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  // Format the value (decimal hours) passed to StatBar for display
+  const displayValue = value.toFixed(2); // Keep showing decimal hours here for simplicity
+
   return (
     <div>
       <div className="flex justify-between mb-1 text-sm">
         {/* Update text colors */}
         <span className="font-medium text-foreground">{label}</span>
-        <span className="text-muted-foreground">{value.toFixed(2)} / {max} hrs</span>
+         {/* Display as X.XX / Y hrs */}
+        <span className="text-muted-foreground">{displayValue} / {max} hrs</span>
       </div>
       {/* Use muted for background bar */}
       <div className="w-full h-2 bg-muted/50 dark:bg-muted/50 rounded-full overflow-hidden">

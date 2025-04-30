@@ -5,7 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, Settings, BarChart } from 'lucide-react';
 import clsx from 'clsx';
 import AdminAttendanceTable, { AdminLogRow } from '@/components/AdminAttendanceTable';
-import { TimezoneProvider } from '@/context/TimezoneContext';
 
 const ITEMS_PER_PAGE = 25; // Define items per page for admin view
 
@@ -172,11 +171,8 @@ export default async function AdminPage({ searchParams }: { searchParams?: { [ke
         </div>
       </form>
       
-      {/* Wrap Client Component in Provider to give it timezone context */}
-      {/* TODO: Get actual user timezone server-side if possible, default to UTC for now */}
-      <TimezoneProvider initialTimezone="UTC">
-        <AdminAttendanceTable logs={typedLogs} />
-      </TimezoneProvider>
+      {/* Attendance Records Table - Use Client Component */}
+      <AdminAttendanceTable logs={typedLogs} />
       
       {/* Pagination Controls - Refine Styles */}
       {totalPages > 1 && (
