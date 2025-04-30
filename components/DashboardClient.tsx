@@ -4,10 +4,21 @@ import { formatInTimeZone } from 'date-fns-tz'; // Import timezone formatter
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { Database } from "@/lib/supabase/database.types"; // Import database types
-import { useState, useContext } from "react"; // Import useState and useContext
+import { useState, useContext, useEffect } from "react"; // Import useState, useContext and useEffect
 import { useRouter } from 'next/navigation'; // Import for page refresh
 import dynamic from 'next/dynamic'; // Import dynamic
 import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the hook
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"; // Import AlertDialog components
 
 type AttendanceLog = Database['public']['Tables']['attendance_logs']['Row'];
 
@@ -75,11 +86,20 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
   const { timezone } = useTimezone(); // Use the hook to get timezone
   // State for punch out action
   const [punchStatus, setPunchStatus] = useState<{ loading: boolean; message: string; error: boolean }>({ loading: false, message: '', error: false });
+  // State for real-time clock
+  const [currentTime, setCurrentTime] = useState(new Date());
+  // State for dialog visibility (though AlertDialog handles its own state via Trigger)
+  // We might need explicit state if triggering programmatically later
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 1000); // Update every second
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   // Calculate stats for Today, Week, Month
-  const now = new Date();
+  const now = currentTime; // Use state variable for current time
   const todayStart = startOfDay(now);
-  const weekStart = startOfDay(new Date(now.setDate(now.getDate() - now.getDay())));
+  const weekStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())); // Correct week start calculation
   const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
 
   let todaySecs = 0;
@@ -154,6 +174,13 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
   // Determine if user is currently signed in (last processed log was an unpaired signin)
   const isCurrentlySignedIn = !!lastSignInLog; 
 
+  // Calculate current dynamic session duration if signed in
+  let currentSessionDurationSecs = 0;
+  if (isCurrentlySignedIn && lastSignInLog?.timestamp) {
+    currentSessionDurationSecs = (currentTime.getTime() - new Date(lastSignInLog.timestamp).getTime()) / 1000;
+  }
+  const finalTodaySecs = todaySecs + currentSessionDurationSecs; // Total today's time including ongoing
+
   // --- Formatting Outputs ---
   const formatTime = (date: Date | string | number | null | undefined) => {
       if (!date) return '--:--';
@@ -212,19 +239,37 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col items-center text-foreground transition-shadow hover:shadow-xl"
       >
         <div className="font-semibold text-lg mb-2 text-foreground">Timesheet</div>
-        <div className="text-muted-foreground text-sm mb-2">{formatFullDate(now)}</div>
+        <div className="text-muted-foreground text-sm mb-2">{formatFullDate(currentTime)}</div>
         {/* TODO: Update PieChart colors to match theme */}
-        <DynamicPieChartComponent todaySecs={todaySecs} />
-        <div className="text-3xl font-bold my-2 text-foreground">{hours(todaySecs)} hrs</div>
-        {/* Punch Out Button - Use destructive variant */}
-        <button 
-          onClick={handlePunchOut}
-          disabled={!isCurrentlySignedIn || punchStatus.loading} 
-          // Use destructive button styles
-          className="mt-2 px-6 py-2 rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {punchStatus.loading ? 'Processing...' : 'Punch Out'}
-        </button>
+        <DynamicPieChartComponent todaySecs={finalTodaySecs} />
+        <div className="text-3xl font-bold my-2 text-foreground">{hours(finalTodaySecs)} hrs</div>
+        {/* Punch Out Button with Confirmation Dialog */}
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button
+              disabled={!isCurrentlySignedIn || punchStatus.loading}
+              // Use destructive button styles
+              className="mt-2 px-6 py-2 rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {punchStatus.loading ? 'Processing...' : 'Punch Out'}
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Punch Out</AlertDialogTitle>
+              <AlertDialogDescription>
+                You have worked approximately <span className="font-semibold">{hours(finalTodaySecs)} hours</span> today.
+                Are you sure you want to punch out now?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>No, Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handlePunchOut} disabled={punchStatus.loading}>
+                Yes, Punch Out
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         {/* Display punch status message */}
         {punchStatus.message && (
           // Adjust colors based on theme
@@ -252,10 +297,10 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         <div className="font-semibold text-lg mb-2 text-foreground">Statistics</div>
         <div className="flex flex-col gap-2">
           {/* Use helper function for colors */}
-          <StatBar label="Today" value={+hours(todaySecs)} max={8} color={getStatBarColor('Today')} />
+          <StatBar label="Today" value={+hours(finalTodaySecs)} max={8} color={getStatBarColor('Today')} />
           <StatBar label="This Week" value={+hours(weekSecs)} max={40} color={getStatBarColor('This Week')} />
           <StatBar label="This Month" value={+hours(monthSecs)} max={160} color={getStatBarColor('This Month')} />
-          <StatBar label="Remaining" value={Math.max(0, 8-+hours(todaySecs))} max={8} color={getStatBarColor('Remaining')} />
+          <StatBar label="Remaining" value={Math.max(0, 8 - +hours(finalTodaySecs))} max={8} color={getStatBarColor('Remaining')} />
           <StatBar label="Overtime" value={0} max={8} color={getStatBarColor('Overtime')} /> {/* Placeholder */}
         </div>
       </motion.div>
@@ -276,7 +321,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
           {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).map((l) => (
             <li key={l.id} className="mb-3 relative">
               {/* Adjust signin/signout dot colors */}
-              <span className={`absolute -left-[7px] top-1 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-destructive'}`} />
+              <span className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-destructive'}`} />
               {/* Format activity time using the global timezone */}
               <span className="font-semibold text-sm ml-2 text-foreground">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {formatTime(l.timestamp)}</span>
             </li>
@@ -312,9 +357,9 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
             <tbody>
               {attendancePairs.map((pair, idx) => (
                 // Use accent for hover, update text
-                <tr key={pair.in.id || idx} className="border-b border-border hover:bg-accent/50 dark:hover:bg-accent/50 transition-colors">
+                <tr key={pair.in.id || idx} className="border-b border-border hover:bg-accent/30 dark:hover:bg-accent/30 transition-colors">
                   {/* Format table dates/times using the global timezone */}
-                  <td className="px-4 py-2 text-foreground">{formatDate(pair.in.timestamp)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{formatDate(pair.in.timestamp)}</td>
                   <td className="px-4 py-2 text-foreground">{formatTime(pair.in.timestamp)}</td>
                   <td className="px-4 py-2 text-foreground">{pair.out ? formatTime(pair.out.timestamp) : <span className="text-orange-500">Missing</span>}</td>
                   <td className="px-4 py-2 text-foreground">{pair.out ? hours(calculateDuration(pair.in, pair.out)) + ' hrs' : '-'}</td>
@@ -345,14 +390,14 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={dailyData}>
             <XAxis dataKey="date" tickFormatter={(dateStr) => {
-                try { return formatInTimeZone(new Date(dateStr), timezone, 'MMM d'); }
+                try { return formatInTimeZone(new Date(dateStr + 'T00:00:00'), timezone, 'MMM d'); }
                 catch { return 'Err'; }
             }} tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} />
             <YAxis tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} unit="h" />
             <Tooltip
               formatter={(value: number) => [`${value.toFixed(2)} hrs`, 'Hours']}
               labelFormatter={(label) => {
-                  try { return formatInTimeZone(new Date(label), timezone, 'PP'); }
+                  try { return formatInTimeZone(new Date(label + 'T00:00:00'), timezone, 'PP'); }
                   catch { return 'Invalid Date'; }
               }}
               cursor={{fill: 'var(--color-accent)', fillOpacity: 0.3}}
