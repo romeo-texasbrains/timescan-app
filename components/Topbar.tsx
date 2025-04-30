@@ -3,8 +3,14 @@ import { BellIcon, UserCircleIcon } from '@heroicons/react/24/outline';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
+import TimeDisplay from './TimeDisplay';
 
-export default function Topbar({ userEmail }: { userEmail: string }) {
+interface TopbarProps {
+  userEmail: string;
+  timezone: string;
+}
+
+export default function Topbar({ userEmail, timezone }: TopbarProps) {
   return (
     <motion.header
       initial={{ y: -40, opacity: 0 }}
@@ -26,8 +32,11 @@ export default function Topbar({ userEmail }: { userEmail: string }) {
          </Link>
       </div>
 
-      {/* Right side: Notifications and User */}
+      {/* Right side: Time Display, Notifications and User */}
       <div className="flex items-center gap-4 sm:gap-6">
+        {/* Time Display - Placed before notifications/user */}
+        <TimeDisplay timezone={timezone} />
+
         {/* Notification Icon */}
         <button className="relative p-1 rounded-full text-muted-foreground hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background focus:ring-primary" aria-label="Notifications" disabled>
           <BellIcon className="h-6 w-6" />

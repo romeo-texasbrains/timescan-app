@@ -1,11 +1,13 @@
 "use client";
 import { format, isSameDay, startOfDay } from "date-fns";
+import { formatInTimeZone } from 'date-fns-tz'; // Import timezone formatter
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { Database } from "@/lib/supabase/database.types"; // Import database types
-import { useState } from "react"; // Import useState
+import { useState, useContext } from "react"; // Import useState and useContext
 import { useRouter } from 'next/navigation'; // Import for page refresh
 import dynamic from 'next/dynamic'; // Import dynamic
+import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the hook
 
 type AttendanceLog = Database['public']['Tables']['attendance_logs']['Row'];
 
@@ -70,6 +72,7 @@ const getStatBarColor = (label: string): string => {
 
 export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { // Use AttendanceLog type
   const router = useRouter(); // Get router instance
+  const { timezone } = useTimezone(); // Use the hook to get timezone
   // State for punch out action
   const [punchStatus, setPunchStatus] = useState<{ loading: boolean; message: string; error: boolean }>({ loading: false, message: '', error: false });
 
@@ -90,6 +93,13 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
   const sortedLogs = (logs || []).sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
   const processedIndices = new Set<number>();
 
+  // Use timezone when calculating date strings for grouping if needed
+  const dateStrToTimezone = (date: Date) => {
+      try {
+        return formatInTimeZone(date, timezone, 'yyyy-MM-dd');
+      } catch { return 'invalid-date'; } // Handle potential errors
+  };
+
   for (let i = 0; i < sortedLogs.length; i++) {
     if (processedIndices.has(i)) continue; // Skip if already part of a pair
 
@@ -108,7 +118,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         ) {
           const duration = calculateDuration(currentLog, nextLog);
           const logDate = startOfDay(new Date(currentLog.timestamp || 0));
-          const dateStr = format(logDate, 'yyyy-MM-dd'); // Use consistent date format
+          const dateStr = dateStrToTimezone(logDate); // Use consistent date format
 
           // Add duration to totals
           if (isSameDay(logDate, todayStart)) todaySecs += duration;
@@ -143,6 +153,26 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
 
   // Determine if user is currently signed in (last processed log was an unpaired signin)
   const isCurrentlySignedIn = !!lastSignInLog; 
+
+  // --- Formatting Outputs ---
+  const formatTime = (date: Date | string | number | null | undefined) => {
+      if (!date) return '--:--';
+      try {
+          return formatInTimeZone(new Date(date), timezone, 'h:mm a');
+      } catch { return 'Invalid Date' }
+  }
+  const formatDate = (date: Date | string | number | null | undefined) => {
+      if (!date) return '----------';
+       try {
+          return formatInTimeZone(new Date(date), timezone, 'PP'); // e.g., Jan 1, 2024
+      } catch { return 'Invalid Date' }
+  }
+  const formatFullDate = (date: Date | string | number | null | undefined) => {
+       if (!date) return '----------';
+       try {
+           return formatInTimeZone(new Date(date), timezone, 'PPPP'); // e.g., Wednesday, January 1st, 2024
+      } catch { return 'Invalid Date' }
+  }
 
   // --- Punch Out Handler --- 
   const handlePunchOut = async () => {
@@ -182,7 +212,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col items-center text-foreground transition-shadow hover:shadow-xl"
       >
         <div className="font-semibold text-lg mb-2 text-foreground">Timesheet</div>
-        <div className="text-muted-foreground text-sm mb-2">{format(now, 'PPPP')}</div>
+        <div className="text-muted-foreground text-sm mb-2">{formatFullDate(now)}</div>
         {/* TODO: Update PieChart colors to match theme */}
         <DynamicPieChartComponent todaySecs={todaySecs} />
         <div className="text-3xl font-bold my-2 text-foreground">{hours(todaySecs)} hrs</div>
@@ -247,7 +277,8 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
             <li key={l.id} className="mb-3 relative">
               {/* Adjust signin/signout dot colors */}
               <span className={`absolute -left-[7px] top-1 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-destructive'}`} />
-              <span className="font-semibold text-sm ml-2 text-foreground">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {format(new Date(l.timestamp || 0), 'h:mm a')}</span>
+              {/* Format activity time using the global timezone */}
+              <span className="font-semibold text-sm ml-2 text-foreground">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {formatTime(l.timestamp)}</span>
             </li>
           ))}
            {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).length === 0 && <li className="text-sm text-muted-foreground">No activity today.</li>}
@@ -282,9 +313,10 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
               {attendancePairs.map((pair, idx) => (
                 // Use accent for hover, update text
                 <tr key={pair.in.id || idx} className="border-b border-border hover:bg-accent/50 dark:hover:bg-accent/50 transition-colors">
-                  <td className="px-4 py-2 text-foreground">{format(new Date(pair.in.timestamp || 0), 'PP')}</td>
-                  <td className="px-4 py-2 text-foreground">{format(new Date(pair.in.timestamp || 0), 'h:mm a')}</td>
-                  <td className="px-4 py-2 text-foreground">{pair.out ? format(new Date(pair.out.timestamp || 0), 'h:mm a') : <span className="text-orange-500">Missing</span>}</td>
+                  {/* Format table dates/times using the global timezone */}
+                  <td className="px-4 py-2 text-foreground">{formatDate(pair.in.timestamp)}</td>
+                  <td className="px-4 py-2 text-foreground">{formatTime(pair.in.timestamp)}</td>
+                  <td className="px-4 py-2 text-foreground">{pair.out ? formatTime(pair.out.timestamp) : <span className="text-orange-500">Missing</span>}</td>
                   <td className="px-4 py-2 text-foreground">{pair.out ? hours(calculateDuration(pair.in, pair.out)) + ' hrs' : '-'}</td>
                   {/* TODO: Calculate Break/Overtime */}
                   <td className="px-4 py-2 text-muted-foreground">-- hrs</td>
@@ -312,11 +344,17 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
         <div className="font-semibold text-lg mb-4 text-foreground">Daily Records</div>
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={dailyData}>
-            {/* Update tick/tooltip styles */}
-            <XAxis dataKey="date" tickFormatter={(dateStr) => format(new Date(dateStr), 'MMM d')} tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} />
+            <XAxis dataKey="date" tickFormatter={(dateStr) => {
+                try { return formatInTimeZone(new Date(dateStr), timezone, 'MMM d'); }
+                catch { return 'Err'; }
+            }} tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} />
             <YAxis tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} unit="h" />
-            <Tooltip 
+            <Tooltip
               formatter={(value: number) => [`${value.toFixed(2)} hrs`, 'Hours']}
+              labelFormatter={(label) => {
+                  try { return formatInTimeZone(new Date(label), timezone, 'PP'); }
+                  catch { return 'Invalid Date'; }
+              }}
               cursor={{fill: 'var(--color-accent)', fillOpacity: 0.3}}
               contentStyle={{ backgroundColor: 'var(--color-popover)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
               labelStyle={{ color: 'var(--color-popover-foreground)' }}
