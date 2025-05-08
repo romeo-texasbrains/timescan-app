@@ -16,11 +16,34 @@ const envSchema = z.object({
 // Export a function to explicitly load environment variables
 export function loadEnvVariables() {
   try {
+    // First check if environment variables are already set (e.g., in Netlify)
+    // This allows the function to work in both local dev and production
+    const existingEnv = {
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    };
+
+    // If all required variables are already set, use them directly
+    if (existingEnv.NEXT_PUBLIC_SUPABASE_URL &&
+        existingEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+        existingEnv.SUPABASE_SERVICE_ROLE_KEY) {
+
+      console.log("Environment variables already set in process.env");
+
+      // Validate the existing environment variables
+      const env = envSchema.parse(existingEnv);
+      return { success: true, env };
+    }
+
+    // If not all variables are set, try to load from .env.local (for local development)
+    console.log("Attempting to load environment variables from .env.local");
+
     // Check if .env.local exists
     if (fs.existsSync(envPath)) {
       // Read and parse the .env file
       const envConfig = dotenv.config({ path: envPath });
-      
+
       if (envConfig.error) {
         throw envConfig.error;
       }
@@ -34,8 +57,8 @@ export function loadEnvVariables() {
 
       return { success: true, env };
     } else {
-      console.error(`ERROR: .env.local file not found at ${envPath}`);
-      return { success: false, error: "ENV_FILE_NOT_FOUND" };
+      console.error(`ERROR: .env.local file not found at ${envPath} and environment variables not set`);
+      return { success: false, error: "ENV_VARIABLES_NOT_FOUND" };
     }
   } catch (error) {
     console.error("Failed to load environment variables:", error);

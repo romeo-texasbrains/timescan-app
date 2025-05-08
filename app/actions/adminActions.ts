@@ -35,10 +35,8 @@ const UpdateDepartmentSchema = z.object({
 
 export async function addEmployee(formData: unknown): Promise<ActionResult> {
 
-    // --- ENVIRONMENT LOADING ---
-    console.log("--- LOADING ENVIRONMENT VARIABLES MANUALLY ---");
+    // Load environment variables
     const envLoadResult = loadEnvVariables();
-    console.log("Environment loading result:", envLoadResult.success ? "SUCCESS" : "FAILED");
 
     if (!envLoadResult.success) {
         console.error("Failed to load environment variables");
@@ -47,28 +45,6 @@ export async function addEmployee(formData: unknown): Promise<ActionResult> {
             message: "Server configuration error: Could not load environment variables."
         };
     }
-
-    // Continue with original debugging
-    console.log("--- COMPREHENSIVE ENVIRONMENT DEBUG ---");
-    console.log("1. Direct access:");
-    console.log("   SUPABASE_SERVICE_ROLE_KEY:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "EXISTS (masked)" : "MISSING");
-    console.log("   NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
-
-    console.log("2. Property check:");
-    console.log("   'SUPABASE_SERVICE_ROLE_KEY' in process.env:", 'SUPABASE_SERVICE_ROLE_KEY' in process.env);
-    console.log("   hasOwnProperty('SUPABASE_SERVICE_ROLE_KEY'):", process.env.hasOwnProperty('SUPABASE_SERVICE_ROLE_KEY'));
-
-    console.log("3. Object.keys verification:");
-    const envKeys = Object.keys(process.env).filter(key =>
-        key.includes('SUPABASE') || key.includes('NEXT_PUBLIC')
-    );
-    console.log("   Environment keys related to Supabase:", envKeys);
-
-    console.log("4. Full environment dump (keys only):");
-    console.log("   All environment keys:", Object.keys(process.env));
-
-    console.log("----------------------------------------");
-    // --- END DEBUGGING ---
 
     const supabaseServer = await createServerClient(); // Use server client to check admin role
 
@@ -99,31 +75,16 @@ export async function addEmployee(formData: unknown): Promise<ActionResult> {
 
     // 3. Create Supabase Admin Client using Service Role Key
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    let serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    // TEMPORARY FALLBACK - ONLY FOR TESTING, REMOVE THIS AFTER DEBUGGING!
-    if (!serviceRoleKey) {
-        console.log("WARNING: Using hardcoded fallback service role key for testing!");
-        serviceRoleKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZWNrbm1xa2VueHh1eWNsZ3RjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTg0MTY5MiwiZXhwIjoyMDYxNDE3NjkyfQ.yjr2SCeuZzPAqKKPBeh9s-7sZb2_jNINi7fRC0TnWfA";
-    }
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     // Check environment variables
     if (!supabaseUrl || !serviceRoleKey) {
         console.error("Server Error: Missing Supabase URL or Service Role Key.");
-        return { success: false, message: "Server configuration error." };
+        return {
+            success: false,
+            message: "Server configuration error: Missing required environment variables."
+        };
     }
-
-    // --- Revert Debugging (Optional, can be removed later) ---
-    console.log("--- Server Action Environment Debug ---");
-    console.log("process.env.SUPABASE_SERVICE_ROLE_KEY raw:",
-                 serviceRoleKey ?
-                 serviceRoleKey.substring(0, 5) + '...' :
-                 '<< MISSING/UNDEFINED >>'
-                );
-    console.log("process.env.NEXT_PUBLIC_SUPABASE_URL raw:", supabaseUrl);
-    console.log("Does process.env have SUPABASE_SERVICE_ROLE_KEY?", process.env.hasOwnProperty('SUPABASE_SERVICE_ROLE_KEY'));
-    console.log("-------------------------------------");
-    // --- END DEBUGGING ---
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
         auth: {
