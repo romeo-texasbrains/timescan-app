@@ -12,7 +12,50 @@ interface TopbarProps {
   timezone: string;
 }
 
-export default function Topbar({ userEmail, timezone, isSidebarCollapsed: initialCollapsed = false }: TopbarProps & { isSidebarCollapsed?: boolean }) {
+// Create a client-only wrapper component to handle hydration mismatches
+import dynamic from 'next/dynamic';
+
+// Server component that doesn't depend on window
+function TopbarServer({ userEmail, timezone, isSidebarCollapsed = false }: TopbarProps & { isSidebarCollapsed?: boolean }) {
+  // Use a fixed layout for server rendering to avoid hydration mismatches
+  return (
+    <motion.header
+      initial={{ y: -40, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ type: 'spring', stiffness: 100, delay: 0.2 }}
+      className="flex items-center justify-between bg-card/80 dark:bg-card/80 backdrop-blur-lg border-b border-white/10 shadow px-2 sm:px-6 py-2 fixed top-0 z-20 h-14 transition-all duration-300 ease-in-out left-0 right-0 w-full"
+    >
+      {/* Left side: Logo only for server rendering */}
+      <div className="flex items-center gap-2">
+        <Link href="/" className="relative flex items-center h-7 w-14 sm:h-8 sm:w-16">
+          <Image
+            src="/logo.png"
+            alt="TimeScan Logo"
+            width={64}
+            height={32}
+            style={{ width: '100%', height: '100%' }}
+            className="object-contain"
+          />
+        </Link>
+      </div>
+
+      {/* Right side: Time Display, Notifications and User */}
+      <div className="flex items-center gap-2 sm:gap-6">
+        {/* Time Display - Placed before notifications/user */}
+        <TimeDisplay timezone={timezone} />
+
+        {/* User Info */}
+        <div className="flex items-center gap-1 sm:gap-2">
+          <UserCircleIcon className="h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground" />
+          <span className="hidden sm:inline font-medium text-sm text-foreground truncate max-w-[150px]">{userEmail}</span>
+        </div>
+      </div>
+    </motion.header>
+  );
+}
+
+// Client-only component that handles all the dynamic behavior
+function TopbarClient({ userEmail, timezone, isSidebarCollapsed: initialCollapsed = false }: TopbarProps & { isSidebarCollapsed?: boolean }) {
   // Track sidebar state locally
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(initialCollapsed);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
@@ -55,18 +98,19 @@ export default function Topbar({ userEmail, timezone, isSidebarCollapsed: initia
 
   // Toggle sidebar visibility on mobile
   const toggleSidebar = () => {
-    // We want to show the sidebar when it's hidden, and hide it when it's visible
-    const newState = !isSidebarHidden;
+    // If the sidebar is hidden (isSidebarHidden is true), we want to show it (isOpen: true)
+    // If the sidebar is visible (isSidebarHidden is false), we want to hide it (isOpen: false)
+    const shouldOpen = isSidebarHidden;
 
-    console.log('Toggling sidebar:', { newState, currentState: isSidebarHidden });
+    console.log('Toggling sidebar:', { shouldOpen, currentlyHidden: isSidebarHidden });
 
     // Set local state first to prevent flickering
-    setIsSidebarHidden(!newState);
+    setIsSidebarHidden(!shouldOpen);
 
     // Dispatch event to toggle sidebar
     if (typeof window !== 'undefined') {
       const event = new CustomEvent('toggleSidebar', {
-        detail: { isOpen: newState }
+        detail: { isOpen: shouldOpen }
       });
       window.dispatchEvent(event);
     }
@@ -124,4 +168,15 @@ export default function Topbar({ userEmail, timezone, isSidebarCollapsed: initia
       </div>
     </motion.header>
   );
+}
+
+// Create a client-only version of the Topbar component
+const ClientOnlyTopbar = dynamic(() => Promise.resolve(TopbarClient), {
+  ssr: false,
+});
+
+// Export the client-only version as the default component
+export default function Topbar(props: TopbarProps & { isSidebarCollapsed?: boolean }) {
+  // Use the server component for SSR, which will be replaced by the client component on hydration
+  return <ClientOnlyTopbar {...props} />;
 }

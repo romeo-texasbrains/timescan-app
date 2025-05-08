@@ -119,6 +119,25 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
     };
   }, [isMobile]);
 
+  // Update state on route change
+  useEffect(() => {
+    if (isMobile) {
+      // On mobile, hide the sidebar when navigating to a new page
+      setIsHidden(true);
+      setIsCollapsed(true);
+      // Reset manual toggle flag
+      setWasManuallyToggled(false);
+
+      // Dispatch event to update other components
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('sidebarStateChange', {
+          detail: { isCollapsed: true, isHidden: true }
+        });
+        window.dispatchEvent(event);
+      }
+    }
+  }, [pathname, isMobile]);
+
   // Handle sidebar collapse toggle and dispatch custom event
   const handleSidebarToggle = () => {
     const newState = !isCollapsed;

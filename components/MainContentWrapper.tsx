@@ -13,7 +13,27 @@ interface MainContentWrapperProps {
   timezone: string;
 }
 
-export default function MainContentWrapper({ children, userEmail, timezone }: MainContentWrapperProps) {
+import dynamic from 'next/dynamic';
+
+// Server component with fixed layout to avoid hydration mismatches
+function MainContentWrapperServer({ children, userEmail, timezone }: MainContentWrapperProps) {
+  return (
+    <>
+      {/* Topbar is now outside the main content wrapper */}
+      <Topbar userEmail={userEmail} timezone={timezone} isSidebarCollapsed={true} />
+
+      <div className="flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out overflow-x-hidden pt-14 ml-0">
+        <main className="flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing">
+          {/* Children will inherit the TimezoneContext provided in layout.tsx */}
+          {children}
+        </main>
+      </div>
+    </>
+  );
+}
+
+// Client component with dynamic layout
+function MainContentWrapperClient({ children, userEmail, timezone }: MainContentWrapperProps) {
   const pathname = usePathname();
   // State to track sidebar collapse status and visibility
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(isMobileWidth());
@@ -72,5 +92,17 @@ export default function MainContentWrapper({ children, userEmail, timezone }: Ma
         </main>
       </div>
     </>
-  )
+  );
+}
+
+// Create a client-only version of the MainContentWrapper component
+const ClientOnlyMainContentWrapper = dynamic(() => Promise.resolve(MainContentWrapperClient), {
+  ssr: false,
+  loading: () => <MainContentWrapperServer userEmail="" timezone="" children={null} />
+});
+
+// Export the client-only version as the default component
+export default function MainContentWrapper(props: MainContentWrapperProps) {
+  // Use the client-only component to avoid hydration mismatches
+  return <ClientOnlyMainContentWrapper {...props} />;
 }
