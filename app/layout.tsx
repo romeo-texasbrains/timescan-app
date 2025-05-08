@@ -5,8 +5,9 @@ import { Toaster } from 'react-hot-toast';
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  minimumScale: 1,
+  userScalable: true,
   themeColor: '#000000',
 };
 
@@ -35,6 +36,7 @@ export default function RootLayout({
         <link rel="icon" href="/icons/txb icon-6.png" />
         <link rel="apple-touch-icon" href="/icons/txb icon-6.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <Toaster position="top-center" reverseOrder={false} />

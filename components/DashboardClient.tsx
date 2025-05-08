@@ -9,11 +9,86 @@ import { useState, useContext, useEffect } from "react"; // Import useState, use
 import { useRouter } from 'next/navigation'; // Import for page refresh
 import dynamic from 'next/dynamic'; // Import dynamic
 import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the hook
+import { useMediaQuery } from '@/hooks/useMediaQuery'; // Import useMediaQuery hook
+import {
+  ResponsiveTable,
+  ResponsiveTableHeader,
+  ResponsiveTableBody,
+  ResponsiveTableHead,
+  ResponsiveTableRow,
+  ResponsiveTableCell,
+  ResponsiveTableCaption
+} from '@/components/ui/responsive-table'; // Import responsive table components
 
-// Create a client-only component for time display to avoid hydration errors
+// Create client-only components for time display to avoid hydration errors
 const ClientOnlyTimeDisplay = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => {
+    // Format the time in a single line
+    return (
+      <span className="text-xl font-bold text-foreground">
+        {formatDuration(seconds)}
+      </span>
+    );
+  }),
+  { ssr: false }
+);
+
+// Client-only component for break time display
+const ClientOnlyBreakDisplay = dynamic(() =>
   Promise.resolve(({ seconds }: { seconds: number }) => (
-    <div className="text-3xl font-bold text-foreground">{formatDuration(seconds)}</div>
+    <span className="text-sm font-semibold text-foreground">{formatDuration(seconds)}</span>
+  )),
+  { ssr: false }
+);
+
+// Client-only component for overtime display
+const ClientOnlyOvertimeDisplay = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => (
+    <span className="text-sm font-semibold text-foreground">{formatDuration(seconds)}</span>
+  )),
+  { ssr: false }
+);
+
+// Client-only component for break duration in dialog
+const ClientOnlyBreakDuration = dynamic(() =>
+  Promise.resolve(({ startTime, currentTime }: { startTime: Date | null, currentTime: Date }) => {
+    if (!startTime) return <span>ongoing</span>;
+    const durationSecs = (currentTime.getTime() - startTime.getTime()) / 1000;
+    return <span>{formatDuration(durationSecs)}</span>;
+  }),
+  { ssr: false }
+);
+
+// Client-only component for work duration in punch out dialog
+const ClientOnlyWorkDuration = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => (
+    <span className="font-semibold text-primary">{formatDuration(seconds)}</span>
+  )),
+  { ssr: false }
+);
+
+// Client-only components for table cell durations
+const ClientOnlyProductionTime = dynamic(() =>
+  Promise.resolve(({ startLog, endLog }: { startLog: AttendanceLog, endLog: AttendanceLog }) => (
+    <span className="text-foreground">{formatDuration(calculateDuration(startLog, endLog))}</span>
+  )),
+  { ssr: false }
+);
+
+const ClientOnlyBreakTime = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => (
+    <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-foreground">
+      {formatDuration(seconds)}
+    </span>
+  )),
+  { ssr: false }
+);
+
+const ClientOnlyOvertimeTime = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => (
+    <span className="px-2 py-1 rounded-full text-xs bg-green-500/10 text-green-500 font-medium">
+      {formatDuration(seconds)}
+    </span>
   )),
   { ssr: false }
 );
@@ -86,7 +161,7 @@ function formatDurationTooltip(totalSeconds: number): string {
 // --- Dynamic Wrapper for Pie Chart ---
 const DynamicPieChartComponent = dynamic(() => Promise.resolve(InnerPieChart), {
   ssr: false,
-  loading: () => <div style={{ width: 120, height: 120 }} className="flex items-center justify-center text-sm text-gray-500">Loading chart...</div>, // Optional loading state
+  loading: () => <div style={{ width: 160, height: 160 }} className="flex items-center justify-center text-sm text-gray-500">Loading chart...</div>, // Optional loading state
 });
 
 function InnerPieChart({ todaySecs }: { todaySecs: number }) {
@@ -98,21 +173,29 @@ function InnerPieChart({ todaySecs }: { todaySecs: number }) {
   const COLORS = ['var(--color-primary)', 'var(--color-muted)'];
 
   return (
-    <div style={{ width: 120, height: 120 }}>
-      <PieChart width={120} height={120}>
+    <div style={{ width: 160, height: 160 }} className="relative">
+      {/* Add a subtle glow effect behind the chart */}
+      <div className="absolute inset-0 rounded-full bg-primary/10 blur-md"></div>
+
+      <PieChart width={160} height={160}>
         <Pie
           data={data}
           cx="50%"
           cy="50%"
-          innerRadius={40}
-          outerRadius={55}
+          innerRadius={50}
+          outerRadius={70}
           dataKey="value"
           startAngle={90}
           endAngle={-270}
           paddingAngle={0} // No padding needed for 2 segments
         >
           {data.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke={COLORS[index % COLORS.length]}/>
+            <Cell
+              key={`cell-${index}`}
+              fill={COLORS[index % COLORS.length]}
+              stroke={COLORS[index % COLORS.length]}
+              strokeWidth={1}
+            />
           ))}
         </Pie>
       </PieChart>
@@ -312,7 +395,11 @@ export default function DashboardClient({
     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Sort daily data for chart
 
   // Determine if user is currently signed in (last processed log was an unpaired signin)
-  const isCurrentlySignedIn = !!lastSignInLog;
+  // Also check the most recent log to ensure it's a signin event
+  const isCurrentlySignedIn = !!lastSignInLog ||
+    (sortedLogs.length > 0 &&
+     sortedLogs[sortedLogs.length - 1].event_type === 'signin' &&
+     !isOnBreak);
 
   // Calculate current dynamic session duration if signed in
   let currentSessionDurationSecs = 0;
@@ -381,15 +468,27 @@ export default function DashboardClient({
         body: JSON.stringify({ action: 'start' }),
       });
       const data = await response.json();
+
       if (!response.ok) {
+        console.error("Break start API error:", data);
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
+
       setPunchStatus({ loading: false, message: data.message || 'Break started!', error: false });
       // Refresh data after successful break start
       router.refresh();
     } catch (error: any) {
       console.error("Break start error:", error);
-      setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not start break.'}`, error: true });
+
+      // Provide more helpful error message based on common issues
+      let errorMessage = error.message || 'Could not start break.';
+
+      // If the error message contains "punch in", suggest the user to punch in first
+      if (errorMessage.toLowerCase().includes('punch in')) {
+        errorMessage = `${errorMessage} Please use the QR scanner to punch in first.`;
+      }
+
+      setPunchStatus({ loading: false, message: `Error: ${errorMessage}`, error: true });
     }
   };
 
@@ -402,9 +501,12 @@ export default function DashboardClient({
         body: JSON.stringify({ action: 'end' }),
       });
       const data = await response.json();
+
       if (!response.ok) {
+        console.error("Break end API error:", data);
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
+
       setPunchStatus({ loading: false, message: data.message || 'Break ended!', error: false });
       // Refresh data after successful break end
       router.refresh();
@@ -439,11 +541,13 @@ export default function DashboardClient({
         )}
 
         {/* PieChart with enhanced styling */}
-        <div className="relative">
-          <DynamicPieChartComponent todaySecs={finalTodaySecs} />
-          <div className="absolute inset-0 flex items-center justify-center flex-col">
+        <div className="flex flex-col items-center mb-4">
+          <div className="mb-2">
+            <DynamicPieChartComponent todaySecs={finalTodaySecs} />
+          </div>
+          <div className="flex items-center justify-center bg-primary/10 px-4 py-2 rounded-full shadow-sm">
             <ClientOnlyTimeDisplay seconds={finalTodaySecs} />
-            <div className="text-xs text-muted-foreground">today</div>
+            <span className="text-xs text-muted-foreground ml-2 mt-1">today</span>
           </div>
         </div>
 
@@ -451,11 +555,11 @@ export default function DashboardClient({
         <div className="grid grid-cols-2 gap-4 w-full mt-4 mb-4">
           <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
             <span className="text-xs text-muted-foreground mb-1">Break</span>
-            <span className="text-sm font-semibold text-foreground">{formatDuration(breakTimeSecs)}</span>
+            <ClientOnlyBreakDisplay seconds={breakTimeSecs} />
           </div>
           <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
             <span className="text-xs text-muted-foreground mb-1">Overtime</span>
-            <span className="text-sm font-semibold text-foreground">{formatDuration(overtimeSecs)}</span>
+            <ClientOnlyOvertimeDisplay seconds={overtimeSecs} />
           </div>
         </div>
 
@@ -528,7 +632,10 @@ export default function DashboardClient({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirm End Break</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Your break has been {lastBreakStartLog ? formatDuration((now.getTime() - new Date(lastBreakStartLog.timestamp || 0).getTime()) / 1000) : 'ongoing'}.
+                    Your break has been <ClientOnlyBreakDuration
+                      startTime={lastBreakStartLog ? new Date(lastBreakStartLog.timestamp || 0) : null}
+                      currentTime={now}
+                    />.
                     Are you ready to return to work?
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -571,7 +678,7 @@ export default function DashboardClient({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Confirm Punch Out</AlertDialogTitle>
                   <AlertDialogDescription>
-                    You have worked approximately <span className="font-semibold text-primary">{formatDuration(finalTodaySecs)}</span> today.
+                    You have worked approximately <ClientOnlyWorkDuration seconds={finalTodaySecs} /> today.
                     Are you sure you want to punch out now?
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -609,7 +716,7 @@ export default function DashboardClient({
         <div className="w-full flex justify-between items-center mb-3">
           <div className="font-semibold text-lg text-foreground">Statistics</div>
           <div className="text-xs text-muted-foreground px-2 py-1 bg-primary/10 rounded-full">
-            {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+            {format(currentTime, 'MMM yyyy')}
           </div>
         </div>
 
@@ -625,7 +732,7 @@ export default function DashboardClient({
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Today')}`}
-                style={{ width: `${Math.min(finalTodayHrsDecimal / 8 * 100, 100)}%` }}
+                style={{ width: `${(Math.min(finalTodayHrsDecimal / 8 * 100, 100)).toFixed(2)}%` }}
               ></div>
             </div>
           </div>
@@ -640,7 +747,7 @@ export default function DashboardClient({
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Week')}`}
-                style={{ width: `${Math.min(weekHrsDecimal / 40 * 100, 100)}%` }}
+                style={{ width: `${(Math.min(weekHrsDecimal / 40 * 100, 100)).toFixed(2)}%` }}
               ></div>
             </div>
           </div>
@@ -655,7 +762,7 @@ export default function DashboardClient({
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Month')}`}
-                style={{ width: `${Math.min(monthHrsDecimal / 160 * 100, 100)}%` }}
+                style={{ width: `${(Math.min(monthHrsDecimal / 160 * 100, 100)).toFixed(2)}%` }}
               ></div>
             </div>
           </div>
@@ -670,7 +777,7 @@ export default function DashboardClient({
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Remaining')}`}
-                style={{ width: `${Math.min((Math.max(0, 8 - finalTodayHrsDecimal)) / 8 * 100, 100)}%` }}
+                style={{ width: `${(Math.min((Math.max(0, 8 - finalTodayHrsDecimal)) / 8 * 100, 100)).toFixed(2)}%` }}
               ></div>
             </div>
           </div>
@@ -685,7 +792,7 @@ export default function DashboardClient({
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Overtime')}`}
-                style={{ width: `${Math.min((Math.max(0, finalTodayHrsDecimal - 8)) / 8 * 100, 100)}%` }}
+                style={{ width: `${(Math.min((Math.max(0, finalTodayHrsDecimal - 8)) / 8 * 100, 100)).toFixed(2)}%` }}
               ></div>
             </div>
           </div>
@@ -774,22 +881,22 @@ export default function DashboardClient({
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-border/50">
-          <table className="min-w-full text-sm">
-            <thead>
+        <div className="rounded-lg border border-border/50">
+          <ResponsiveTable className="min-w-full text-sm">
+            <ResponsiveTableHeader>
               <tr className="bg-primary/5">
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Punch In</th>
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Punch Out</th>
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Production</th>
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Break</th>
-                <th className="px-4 py-3 text-left font-semibold text-foreground">Overtime</th>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Date</ResponsiveTableHead>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Punch In</ResponsiveTableHead>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Punch Out</ResponsiveTableHead>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Production</ResponsiveTableHead>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Break</ResponsiveTableHead>
+                <ResponsiveTableHead className="px-4 py-3 text-left font-semibold text-foreground">Overtime</ResponsiveTableHead>
               </tr>
-            </thead>
-            <tbody>
+            </ResponsiveTableHeader>
+            <ResponsiveTableBody>
               {attendancePairs.length > 0 ? (
                 attendancePairs.map((pair, idx) => (
-                  <tr
+                  <ResponsiveTableRow
                     key={pair.in.id || idx}
                     className={clsx(
                       "border-b border-border/50 hover:bg-primary/5 transition-colors",
@@ -797,23 +904,23 @@ export default function DashboardClient({
                     )}
                   >
                     {/* Date column with better formatting */}
-                    <td className="px-4 py-3">
+                    <ResponsiveTableCell header="Date" className="px-4 py-3">
                       <div className="font-medium text-foreground">{formatDate(pair.in.timestamp)}</div>
                       <div className="text-xs text-muted-foreground">
-                        {new Date(pair.in.timestamp || 0).toLocaleDateString('en-US', { weekday: 'short' })}
+                        {format(new Date(pair.in.timestamp || 0), 'EEE')}
                       </div>
-                    </td>
+                    </ResponsiveTableCell>
 
                     {/* Punch In time */}
-                    <td className="px-4 py-3">
+                    <ResponsiveTableCell header="Punch In" className="px-4 py-3">
                       <div className="flex items-center">
                         <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
                         <span className="text-foreground">{formatTime(pair.in.timestamp)}</span>
                       </div>
-                    </td>
+                    </ResponsiveTableCell>
 
                     {/* Punch Out time */}
-                    <td className="px-4 py-3">
+                    <ResponsiveTableCell header="Punch Out" className="px-4 py-3">
                       {pair.out ? (
                         <div className="flex items-center">
                           <span className="w-2 h-2 rounded-full bg-destructive mr-2"></span>
@@ -822,43 +929,39 @@ export default function DashboardClient({
                       ) : (
                         <span className="px-2 py-1 rounded-full text-xs bg-orange-500/20 text-orange-500 font-medium">Missing</span>
                       )}
-                    </td>
+                    </ResponsiveTableCell>
 
                     {/* Production time */}
-                    <td className="px-4 py-3 font-medium">
+                    <ResponsiveTableCell header="Production" className="px-4 py-3 font-medium">
                       {pair.out ? (
-                        <span className="text-foreground">{formatDuration(calculateDuration(pair.in, pair.out))}</span>
+                        <ClientOnlyProductionTime startLog={pair.in} endLog={pair.out} />
                       ) : (
                         <span className="text-muted-foreground">--</span>
                       )}
-                    </td>
+                    </ResponsiveTableCell>
 
                     {/* Break time */}
-                    <td className="px-4 py-3">
+                    <ResponsiveTableCell header="Break" className="px-4 py-3">
                       {pair.breakTime ? (
-                        <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-foreground">
-                          {formatDuration(pair.breakTime)}
-                        </span>
+                        <ClientOnlyBreakTime seconds={pair.breakTime} />
                       ) : (
                         <span className="text-muted-foreground">--</span>
                       )}
-                    </td>
+                    </ResponsiveTableCell>
 
                     {/* Overtime */}
-                    <td className="px-4 py-3">
+                    <ResponsiveTableCell header="Overtime" className="px-4 py-3">
                       {pair.overtime && pair.overtime > 0 ? (
-                        <span className="px-2 py-1 rounded-full text-xs bg-green-500/10 text-green-500 font-medium">
-                          {formatDuration(pair.overtime)}
-                        </span>
+                        <ClientOnlyOvertimeTime seconds={pair.overtime} />
                       ) : (
                         <span className="text-muted-foreground">--</span>
                       )}
-                    </td>
-                  </tr>
+                    </ResponsiveTableCell>
+                  </ResponsiveTableRow>
                 ))
               ) : (
-                <tr>
-                  <td colSpan={6} className="text-center py-8">
+                <ResponsiveTableRow>
+                  <ResponsiveTableCell colSpan={6} className="text-center py-8">
                     <div className="flex flex-col items-center justify-center text-muted-foreground">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -866,11 +969,11 @@ export default function DashboardClient({
                       <p className="text-sm">No attendance records found</p>
                       <p className="text-xs mt-1">Use the QR scanner to record your attendance</p>
                     </div>
-                  </td>
-                </tr>
+                  </ResponsiveTableCell>
+                </ResponsiveTableRow>
               )}
-            </tbody>
-          </table>
+            </ResponsiveTableBody>
+          </ResponsiveTable>
         </div>
       </motion.div>
 
@@ -915,9 +1018,10 @@ export default function DashboardClient({
 }
 
 function StatBar({ label, value, max, color }: { label: string, value: number, max: number, color: string }) {
-  const percentage = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  // Calculate percentage with fixed precision to avoid hydration mismatches
+  const percentage = max > 0 ? (Math.min(100, (value / max) * 100)).toFixed(2) : "0";
   // Format the value (decimal hours) passed to StatBar for display
-  const displayValue = value.toFixed(2); // Keep showing decimal hours here for simplicity
+  const displayValue = value.toFixed(1); // Keep showing decimal hours here for simplicity
 
   return (
     <div>
