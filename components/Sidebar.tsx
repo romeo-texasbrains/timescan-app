@@ -4,9 +4,10 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HomeIcon, QrCodeIcon, ClockIcon, UsersIcon, Cog6ToothIcon, ChartBarIcon, DocumentTextIcon, ArrowLeftOnRectangleIcon, ChevronDoubleLeftIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, QrCodeIcon, ClockIcon, UsersIcon, Cog6ToothIcon, ChartBarIcon, DocumentTextIcon, ArrowLeftOnRectangleIcon, ChevronDoubleLeftIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import { logoutAction } from '@/app/actions/authActions';
+import { clientLogout } from '@/lib/auth/clientLogout';
 import { toast } from 'sonner';
 
 // Define valid roles
@@ -23,6 +24,7 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Dashboard', href: '/', icon: HomeIcon },
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
+    { label: 'Manager', href: '/mgmt', icon: UsersIcon },
     { label: 'Reports', href: '/mgmt/reports', icon: ChartBarIcon },
     { label: 'Adjustments', href: '/mgmt/adjustments', icon: DocumentTextIcon },
   ],
@@ -31,6 +33,7 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
     { label: 'Employees', href: '/admin/employees', icon: UsersIcon },
+    { label: 'Departments', href: '/admin/departments', icon: BuildingOfficeIcon },
     { label: 'Reports', href: '/admin/reports', icon: ChartBarIcon },
     { label: 'Settings', href: '/admin/settings', icon: Cog6ToothIcon },
   ],
@@ -60,21 +63,62 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
   useEffect(() => {
     const checkWidth = () => {
       const mobile = isMobileWidth();
-      setIsCollapsed(current => (mobile ? true : current)); 
+      setIsCollapsed(current => (mobile ? true : current));
     };
     window.addEventListener('resize', checkWidth);
     checkWidth();
     return () => window.removeEventListener('resize', checkWidth);
   }, []);
 
+  // Handle sidebar collapse toggle and dispatch custom event
+  const handleSidebarToggle = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+
+    // Dispatch custom event for other components to listen to
+    if (typeof window !== 'undefined') {
+      const event = new CustomEvent('sidebarStateChange', {
+        detail: { isCollapsed: newState }
+      });
+      window.dispatchEvent(event);
+    }
+  };
+
   const handleLogoutClick = () => {
     startLogoutTransition(async () => {
       try {
+        // Try server-side logout first
         await logoutAction();
         toast.info("Logging out...");
       } catch (error) {
-        console.error("Logout failed:", error);
-        toast.error("Logout failed. Please try again.");
+        console.error("Server-side logout failed:", error);
+
+        // Try client-side logout as fallback
+        toast.info("Trying client-side logout...");
+
+        try {
+          // Attempt client-side logout
+          const result = await clientLogout();
+
+          if (result.success) {
+            toast.success("Logged out successfully");
+          } else {
+            toast.error("Logout failed");
+          }
+
+          // Redirect to login page regardless of client-side logout result
+          setTimeout(() => {
+            window.location.href = '/login?message=Session+expired';
+          }, 1000);
+        } catch (clientError) {
+          console.error("Client-side logout failed:", clientError);
+
+          // Last resort: just redirect to login
+          toast.info("Redirecting to login page...");
+          setTimeout(() => {
+            window.location.href = '/login?message=Session+expired';
+          }, 1000);
+        }
       }
     });
   };
@@ -101,6 +145,7 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
               alt="Logo"
               width={200}
               height={200}
+              priority
               style={{ width: '100%', height: '100%' }}
               className="object-contain"
             />
@@ -124,7 +169,7 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
        {/* Collapse Toggle Button Section - Moved below header */}
         <div className={clsx("px-2", isCollapsed && "px-0 flex justify-center")}>
            <motion.button
-            onClick={() => setIsCollapsed(!isCollapsed)}
+            onClick={handleSidebarToggle}
             title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             className={clsx(
                 "flex items-center justify-center p-2 rounded-lg w-full",

@@ -25,7 +25,7 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
   useEffect(() => {
     if (externalStatus === 'success' || externalStatus === 'error' || externalStatus === 'idle') {
        if (internalStatus === 'loading') {
-           setInternalStatus('idle'); 
+           setInternalStatus('idle');
            setInternalMessage('');
        }
     }
@@ -79,20 +79,42 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
       });
 
     return () => {
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        html5QrCodeRef.current.stop()
-          .then(() => {
-            if (html5QrCodeRef.current) {
-                 html5QrCodeRef.current.clear();
-            }
-            console.log("QR Scanner stopped.");
-          })
-          .catch((err) => {
-            console.error("Error stopping QR Scanner:", err);
-          })
-          .finally(() => {
-              html5QrCodeRef.current = null; 
-          });
+      const scanner = html5QrCodeRef.current;
+      if (scanner) {
+        // Store reference to scanner before clearing the ref
+        const scannerInstance = scanner;
+
+        // Clear the ref immediately to prevent multiple cleanup attempts
+        html5QrCodeRef.current = null;
+
+        if (scannerInstance.isScanning) {
+          scannerInstance.stop()
+            .then(() => {
+              try {
+                scannerInstance.clear();
+                console.log("QR Scanner stopped and cleared.");
+              } catch (clearErr) {
+                console.error("Error clearing QR Scanner:", clearErr);
+              }
+            })
+            .catch((err) => {
+              console.error("Error stopping QR Scanner:", err);
+              // Try to clear anyway
+              try {
+                scannerInstance.clear();
+              } catch (clearErr) {
+                console.error("Error clearing QR Scanner after stop error:", clearErr);
+              }
+            });
+        } else {
+          // If not scanning, just try to clear
+          try {
+            scannerInstance.clear();
+            console.log("QR Scanner cleared (was not scanning).");
+          } catch (clearErr) {
+            console.error("Error clearing QR Scanner (was not scanning):", clearErr);
+          }
+        }
       }
     };
   }, [finalMessage, finalStatus, onScan]);
@@ -104,27 +126,48 @@ const QrScanner = ({ onScan, externalStatus = 'idle', externalMessage }: QrScann
         ref={qrRef}
         className={clsx(
           "w-full max-w-[300px] sm:max-w-[400px] aspect-square",
-          "relative rounded shadow border-2 bg-black overflow-hidden",
-          finalStatus === 'idle' && 'border-gray-300 dark:border-gray-600',
-          finalStatus === 'loading' && 'border-blue-500 animate-pulse',
-          finalStatus === 'success' && 'border-green-500',
-          finalStatus === 'error' && 'border-red-500'
+          "relative rounded-xl shadow-lg border-2 bg-black overflow-hidden",
+          "transition-all duration-300 ease-in-out",
+          finalStatus === 'idle' && 'border-primary/30 dark:border-primary/30',
+          finalStatus === 'loading' && 'border-primary animate-pulse scale-[1.02]',
+          finalStatus === 'success' && 'border-green-500 scale-[1.02]',
+          finalStatus === 'error' && 'border-destructive scale-[1.02]'
         )}
       >
-        {(finalStatus === 'loading' || (finalStatus === 'error' && finalMessage)) && (
-            <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4">
-                <p className="text-white text-center text-lg font-semibold">
-                  {finalStatus === 'loading' ? 'Processing...' : finalMessage}
-                </p>
+        {/* Scanner frame corners for visual effect */}
+        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary/70 rounded-tl-lg"></div>
+        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary/70 rounded-tr-lg"></div>
+        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary/70 rounded-bl-lg"></div>
+        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary/70 rounded-br-lg"></div>
+
+        {/* Scanning animation */}
+        {finalStatus === 'idle' && (
+          <div className="absolute inset-x-0 top-0 h-1 bg-primary/50 animate-scan"></div>
+        )}
+
+        {/* Status overlays */}
+        {(finalStatus === 'loading' || (finalStatus === 'error' && finalMessage) || finalStatus === 'success') && (
+            <div className={clsx(
+              "absolute inset-0 backdrop-blur-sm flex items-center justify-center p-4",
+              finalStatus === 'loading' && 'bg-black/50',
+              finalStatus === 'success' && 'bg-green-500/20',
+              finalStatus === 'error' && 'bg-destructive/20'
+            )}>
+                <div className="bg-card/90 p-4 rounded-lg shadow-lg border border-white/10 max-w-[90%]">
+                  <p className="text-foreground text-center text-lg font-semibold">
+                    {finalStatus === 'loading' ? 'Processing...' : finalMessage}
+                  </p>
+                </div>
             </div>
         )}
       </div>
       <p className={clsx(
-          "text-xs mt-3 h-4 text-center",
-          finalStatus === 'idle' && 'text-gray-500 dark:text-gray-400',
-          finalStatus === 'loading' && 'text-blue-500 animate-pulse',
-          finalStatus === 'success' && 'text-green-600 font-medium',
-          finalStatus === 'error' && 'text-red-600 font-medium'
+          "text-sm mt-4 h-5 text-center font-medium",
+          "transition-all duration-300",
+          finalStatus === 'idle' && 'text-muted-foreground',
+          finalStatus === 'loading' && 'text-primary animate-pulse',
+          finalStatus === 'success' && 'text-green-500',
+          finalStatus === 'error' && 'text-destructive'
         )}>
           {(finalStatus === 'idle' && !externalMessage) ? internalMessage : (finalStatus !== 'idle' ? finalMessage : '')}
         </p>

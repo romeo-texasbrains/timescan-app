@@ -19,6 +19,7 @@ To develop a modern, mobile-optimized web application ("TimeScan") enabling empl
 *   QR Code display mechanism
 *   Mobile QR Code scanning for Sign-in/Sign-out
 *   Attendance logging in Supabase DB
+*   Break management system with explicit start/end functionality
 *   Manager/Admin reporting dashboard & filtering
 *   Manual attendance adjustments (Managers/Admins)
 *   Employee self-view of attendance history
@@ -36,14 +37,35 @@ To develop a modern, mobile-optimized web application ("TimeScan") enabling empl
 │   │   ├── page.tsx
 │   │   ├── scan/page.tsx
 │   │   ├── history/page.tsx
-│   │   ├── mgmt/     # Needs implementation
+│   │   ├── mgmt/     # Manager features
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx
+│   │   │   ├── reports/page.tsx
+│   │   │   └── adjustments/
+│   │   │       ├── page.tsx
+│   │   │       ├── new/page.tsx
+│   │   │       └── [id]/page.tsx
 │   │   └── admin/
 │   │       ├── layout.tsx
-│   │       └── page.tsx
-│   │       └── employees/    # NEW: Added for employee management
-│   │           └── page.tsx # NEW: Added for employee management
+│   │       ├── page.tsx
+│   │       ├── employees/
+│   │       │   ├── page.tsx
+│   │       │   ├── new/page.tsx
+│   │       │   └── [id]/page.tsx
+│   │       ├── departments/
+│   │       │   ├── page.tsx
+│   │       │   ├── new/page.tsx
+│   │       │   └── [id]/page.tsx
+│   │       ├── logs/
+│   │       │   └── [id]/page.tsx
+│   │       ├── reports/page.tsx
+│   │       ├── settings/page.tsx
+│   │       └── qr-codes/page.tsx
 │   ├── api/
-│   │   └── attendance/route.ts
+│   │   ├── attendance/route.ts
+│   │   └── break/route.ts
+│   ├── actions/
+│   │   └── managerActions.ts
 │   ├── layout.tsx
 │   ├── page.tsx # Should redirect or be removed if not used
 │   └── globals.css
@@ -66,6 +88,11 @@ To develop a modern, mobile-optimized web application ("TimeScan") enabling empl
 │   ├── constants.ts # Needs implementation
 │   └── types/      # Needs implementation
 ├── public/
+├── migrations/
+│   ├── README.md
+│   ├── add_break_event_types.sql
+│   ├── add_departments.sql
+│   └── run_migration.js
 ├── styles/ # Likely not used directly if Tailwind preferred
 ├── supabase/ # Optional
 │   └── ...
@@ -125,27 +152,42 @@ This outlines the planned steps to build the application, updated based on recen
 21. ✅ **Build History Page UI:** `app/(app)/history/page.tsx` (Includes pagination)
 22. ✅ **Implement History Data Fetching:** Fetches & displays user's logs respecting RLS and pagination.
 
-**Phase 5: Manager Features (Needs Implementation)**
+**Phase 5: Manager Features (Completed)**
 
-23. 🔧 **Implement Role Checks:** Middleware/Layout checks for `manager` role. (Done in Layout/Sidebar, needs RLS)
-24. **Build Manager Dashboard**
-25. **Build Reports Page:** `app/(app)/mgmt/reports/page.tsx`
-26. **Build Manual Adjustments Page:** `app/(app)/mgmt/adjustments/page.tsx`
+23. ✅ **Implement Role Checks:** Middleware/Layout checks for `manager` role. (Implemented in `app/(app)/mgmt/layout.tsx`)
+24. ✅ **Build Manager Dashboard:** Created dashboard with employee stats and quick links (`app/(app)/mgmt/page.tsx`)
+    * ✅ Added detailed employee status view with department information
+    * ✅ Implemented department-based filtering for managers
+25. ✅ **Build Reports Page:** Implemented reports with filtering and detailed view (`app/(app)/mgmt/reports/page.tsx`)
+26. ✅ **Build Manual Adjustments Page:** Created adjustments page with CRUD functionality:
+    * ✅ View and filter attendance logs
+    * ✅ Edit existing attendance logs
+    * ✅ Add new attendance logs manually
+    * ✅ Server actions for secure data handling
+27. ✅ **Implement Department Management:**
+    * ✅ Created departments database table with RLS policies
+    * ✅ Added department management UI for admins
+    * ✅ Updated employee management to include department assignment
+    * ✅ Modified manager dashboard to filter by department
 
 **Phase 6: Admin Features (Partially Done)**
 
-27. ✅ **Implement Admin Role Checks:** Middleware/Layout checks for `admin` role. (Layout checks in `app/(app)/admin/layout.tsx`, Sidebar link fixed in `components/Sidebar.tsx`)
-28. ✅ **Build Admin Dashboard/Overview:** `app/(app)/admin/page.tsx` (Refined existing page, added link cards)
-29. ✅ **Build User Management Page:** `app/(app)/admin/employees/page.tsx` 
+28. ✅ **Implement Admin Role Checks:** Middleware/Layout checks for `admin` role. (Layout checks in `app/(app)/admin/layout.tsx`, Sidebar link fixed in `components/Sidebar.tsx`)
+29. ✅ **Build Admin Dashboard/Overview:** `app/(app)/admin/page.tsx` (Refined existing page, added link cards)
+30. ✅ **Build User Management Page:** `app/(app)/admin/employees/page.tsx`
     *   ✅ Basic employee list table implemented with pagination.
     *   ✅ Add Employee form and server action implemented (`/admin/employees/new`).
     *   ✅ Edit/View Employee: UI placeholders present, implementation completed.
     *   ✅ Filtering/sorting to employee list: Implemented.
     *   ✅ Admin: Edit Attendance Log (`/admin/logs/[id]`) page created with working edit form.
-30. ✅ **Build Settings Page:** `/admin/settings` (Basic save/load implemented)
-31. ✅ **NEW:** Build Reports Page: `/admin/reports` (Filtering and aggregation implemented)
+31. ✅ **Build Department Management:** `app/(app)/admin/departments/page.tsx`
+    *   ✅ Department list with employee counts
+    *   ✅ Add/Edit/Delete department functionality
+    *   ✅ Department assignment in employee edit page
+32. ✅ **Build Settings Page:** `/admin/settings` (Basic save/load implemented)
+33. ✅ **NEW:** Build Reports Page: `/admin/reports` (Filtering and aggregation implemented)
     *   ⏳ Export functionality deferred.
-31.5. ✅ **NEW:** Build QR Code Management Page: `/admin/qr-codes` (Generate, display, save, delete)
+34. ✅ **NEW:** Build QR Code Management Page: `/admin/qr-codes` (Generate, display, save, delete)
 
 **Phase 7: UI Polishing & Refinement (Needs Implementation)**
 
@@ -154,19 +196,37 @@ This outlines the planned steps to build the application, updated based on recen
 34. 🔧 **Improve Error Handling & Feedback:** Add toasts, scanner messages, etc. (Partially Addressed, Needs More)
 35. 🔧 **Ensure Mobile Responsiveness:** (Needs Review)
 36. 🔧 **Add Loading States:** Login form, dashboard actions
-37. **NEW:** Implement Dashboard: Punch Out Button functionality
-38. **NEW:** Implement Dashboard: Dynamic Break/Overtime calculation
-39. 🔧 **NEW:** Fix Type Safety (`any` usage)
-40. 🔧 **NEW:** Review/Fix non-functional Topbar elements (Search, Notifications)
-41. 🔧 **NEW:** Update default App Title/Metadata
+37. ✅ **Implement Dashboard: Punch Out Button functionality**
+38. ✅ **Implement Dashboard: Dynamic Break/Overtime calculation**
+39. ✅ **Implement Break Management System:**
+    * ✅ Created API endpoint for break management (`app/api/break/route.ts`)
+    * ✅ Added UI for starting and ending breaks
+    * ✅ Implemented break time calculation based on actual break periods
+    * ✅ Updated activity timeline to show break events
+    * ✅ Added SQL migration for break event types (`migrations/add_break_event_types.sql`)
+40. ✅ **Enhance Manager Navigation:**
+    * ✅ Added dedicated Manager Dashboard link in sidebar
+    * ✅ Fixed Select component in adjustments page
+41. 🔧 **Fix Type Safety (`any` usage)**
+42. 🔧 **Review/Fix non-functional Topbar elements (Search, Notifications)**
+43. 🔧 **Update default App Title/Metadata**
 
 **Phase 8: Testing & Deployment (Needs Implementation)**
 
-42. **Manual Testing:** Test all flows and roles
-43. **Deployment:** Configure and deploy to Vercel
-44. **Production Testing:** Final checks on live deployment
+44. **Manual Testing:** Test all flows and roles
+45. **Deployment:** Configure and deploy to Vercel
+46. **Production Testing:** Final checks on live deployment
 
 ## 9. Technical Notes & Gotchas
+
+*   **Break Management System Database Update:**
+    *   **Requirement:** The break management system requires updating the `attendance_event_type` enum in the database to include `break_start` and `break_end` values.
+    *   **Implementation:** This can be done through a SQL migration:
+        ```sql
+        ALTER TYPE attendance_event_type ADD VALUE IF NOT EXISTS 'break_start';
+        ALTER TYPE attendance_event_type ADD VALUE IF NOT EXISTS 'break_end';
+        ```
+    *   **Note:** After updating the enum, regenerate the TypeScript types using the Supabase CLI.
 
 *   **Next.js 15 Dynamic API Changes (searchParams, cookies, headers):**
     *   **Issue:** In Next.js 15+, accessing properties of dynamic APIs like `searchParams` directly within Server Components (e.g., `page.tsx`) without first `await`-ing the API itself will cause warnings or errors (`searchParams should be awaited before using its properties`).
@@ -176,10 +236,10 @@ This outlines the planned steps to build the application, updated based on recen
           // GOOD: Await searchParams first
           const awaitedSearchParams = await searchParams;
           const pageValue = awaitedSearchParams?.page; // Access properties *after* await
-          
+
           // Use pageValue, e.g., pass to a data fetching function
           const data = await fetchData(pageValue);
-          
+
           // ... render ...
         }
         ```
@@ -225,7 +285,7 @@ This outlines the planned steps to build the application, updated based on recen
    ```typescript
    describe('ComponentName', () => {
      const user = userEvent.setup()
-     
+
      beforeEach(() => {
        jest.clearAllMocks()
      })

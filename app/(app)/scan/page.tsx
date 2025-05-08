@@ -27,20 +27,20 @@ export default function ScanPage() {
   // Updated handler to set status and message
   const handleScan = async (scannedText: string) => {
     if (status === 'loading') return; // Should technically not happen if scanner stops on load, but safe check.
-    
+
     if (!scannedText) {
         setStatus('error');
         setMessage('Received empty scan data. Please try again.');
         setIsScanningActive(false); // Stop scanning on empty data
         return;
     };
-    
+
     setStatus('loading');
     setMessage(''); // Scanner shows "Processing..."
 
     try {
       // Simulate network delay if needed for testing loading state
-      // await new Promise(resolve => setTimeout(resolve, 1500)); 
+      // await new Promise(resolve => setTimeout(resolve, 1500));
 
       const response = await fetch('/api/attendance', {
         method: 'POST',
@@ -64,7 +64,7 @@ export default function ScanPage() {
         setMessage('An unknown error occurred.');
       }
       setIsScanningActive(false); // Stop scanning after error
-    } 
+    }
   };
 
   const startScanning = () => {
@@ -78,44 +78,50 @@ export default function ScanPage() {
       <h1 className="text-2xl font-semibold mb-4">Scan Attendance QR Code</h1>
 
       {/* Scanner Area or Start Button */}
-      <div className="relative w-full max-w-xs sm:max-w-sm border-2 border-dashed border-gray-400 rounded-lg overflow-hidden mb-4 aspect-square flex items-center justify-center">
+      <div className="relative w-full max-w-xs sm:max-w-sm border-2 border-dashed border-primary/30 dark:border-primary/30 rounded-xl overflow-hidden mb-6 aspect-square flex items-center justify-center bg-card/50 backdrop-blur-sm shadow-lg transition-all duration-300 hover:shadow-xl">
         {isScanningActive ? (
           // Render Scanner when active
           <div className="absolute inset-0 flex items-center justify-center">
-            <QrScanner 
-              onScan={handleScan} 
-              externalStatus={status} 
-              externalMessage={message} 
+            <QrScanner
+              onScan={handleScan}
+              externalStatus={status}
+              externalMessage={message}
             />
           </div>
         ) : (
           // Render Start Button when inactive
-          <button 
-            onClick={startScanning}
-            // Conditionally style the button based on the *previous* status
-            className={clsx(
-                "px-6 py-3 text-white font-semibold rounded-lg shadow transition-colors duration-200",
-                status === 'success' && "bg-green-600 hover:bg-green-700",
-                status === 'error' && "bg-red-600 hover:bg-red-700",
-                status === 'idle' && "bg-blue-600 hover:bg-blue-700",
-                // Add loading style? Button shouldn't strictly be clickable during load
-            )}
-          >
-            {/* Change button text based on previous result */} 
-            {status === 'success' ? 'Scan Again' : status === 'error' ? 'Try Scan Again' : 'Start Scanning'}
-          </button>
+          <div className="flex flex-col items-center justify-center p-4 text-center">
+            <div className="mb-4 text-primary/70">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+            </div>
+            <p className="text-muted-foreground mb-4">Ready to scan attendance QR code</p>
+            <button
+              onClick={startScanning}
+              className={clsx(
+                "px-6 py-3 font-semibold rounded-lg shadow-md transition-all duration-300 transform hover:scale-105",
+                status === 'success' && "bg-green-600 hover:bg-green-700 text-white",
+                status === 'error' && "bg-destructive hover:bg-destructive/90 text-destructive-foreground",
+                status === 'idle' && "bg-primary hover:bg-primary/90 text-primary-foreground",
+              )}
+            >
+              {/* Change button text based on previous result */}
+              {status === 'success' ? 'Scan Again' : status === 'error' ? 'Try Scan Again' : 'Start Scanning'}
+            </button>
+          </div>
         )}
       </div>
 
       {/* Display final status message *below* the button area if not scanning */}
       {!isScanningActive && message && (
-          <p className={clsx(
-              "text-sm mt-2 h-4 font-medium",
-              status === 'success' && 'text-green-600',
-              status === 'error' && 'text-red-600',
+          <div className={clsx(
+              "p-4 rounded-lg shadow-md border text-center max-w-xs mx-auto transition-all duration-300",
+              status === 'success' && 'bg-green-500/10 border-green-500/30 text-green-600',
+              status === 'error' && 'bg-destructive/10 border-destructive/30 text-destructive',
           )}>
-              {message}
-          </p>
+              <p className="font-medium">{message}</p>
+          </div>
       )}
 
       {/* Removed old status display elements below scanner */}

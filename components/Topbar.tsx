@@ -4,19 +4,40 @@ import { motion } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
 import TimeDisplay from './TimeDisplay';
+import { useState, useEffect } from 'react';
 
 interface TopbarProps {
   userEmail: string;
   timezone: string;
 }
 
-export default function Topbar({ userEmail, timezone }: TopbarProps) {
+export default function Topbar({ userEmail, timezone, isSidebarCollapsed: initialCollapsed = false }: TopbarProps & { isSidebarCollapsed?: boolean }) {
+  // Track sidebar state locally
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(initialCollapsed);
+
+  // Listen for sidebar state changes
+  useEffect(() => {
+    const handleSidebarStateChange = (event: CustomEvent<{ isCollapsed: boolean }>) => {
+      setIsSidebarCollapsed(event.detail.isCollapsed);
+    };
+
+    // Add event listener
+    window.addEventListener('sidebarStateChange', handleSidebarStateChange as EventListener);
+
+    // Initialize with prop value
+    setIsSidebarCollapsed(initialCollapsed);
+
+    // Clean up
+    return () => {
+      window.removeEventListener('sidebarStateChange', handleSidebarStateChange as EventListener);
+    };
+  }, [initialCollapsed]);
   return (
     <motion.header
       initial={{ y: -40, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ type: 'spring', stiffness: 100, delay: 0.2 }}
-      className="flex items-center justify-between bg-card/80 dark:bg-card/80 backdrop-blur-lg border-b border-white/10 shadow px-4 sm:px-6 py-2 sticky top-0 z-20"
+      className={`flex items-center justify-between bg-card/80 dark:bg-card/80 backdrop-blur-lg border-b border-white/10 shadow px-4 sm:px-6 py-2 fixed top-0 z-20 h-14 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'left-20 right-0 w-[calc(100%-5rem)]' : 'left-64 right-0 w-[calc(100%-16rem)]'}`}
     >
       {/* Left side: Logo */}
       <div className="flex items-center">

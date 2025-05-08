@@ -3,11 +3,20 @@ import { format, isSameDay, startOfDay } from "date-fns";
 import { formatInTimeZone } from 'date-fns-tz'; // Import timezone formatter
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import clsx from 'clsx';
 import { Database } from "@/lib/supabase/database.types"; // Import database types
 import { useState, useContext, useEffect } from "react"; // Import useState, useContext and useEffect
 import { useRouter } from 'next/navigation'; // Import for page refresh
 import dynamic from 'next/dynamic'; // Import dynamic
 import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the hook
+
+// Create a client-only component for time display to avoid hydration errors
+const ClientOnlyTimeDisplay = dynamic(() =>
+  Promise.resolve(({ seconds }: { seconds: number }) => (
+    <div className="text-3xl font-bold text-foreground">{formatDuration(seconds)}</div>
+  )),
+  { ssr: false }
+);
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,7 +133,15 @@ const getStatBarColor = (label: string): string => {
   }
 };
 
-export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { // Use AttendanceLog type
+export default function DashboardClient({
+  logs,
+  userProfile,
+  departmentName
+}: {
+  logs: AttendanceLog[];
+  userProfile: { full_name: string; role: string; department_id: string | null } | null;
+  departmentName: string | null;
+}) { // Use AttendanceLog type
   const router = useRouter(); // Get router instance
   const { timezone } = useTimezone(); // Use the hook to get timezone
   // State for punch out action
@@ -148,9 +165,13 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
   let todaySecs = 0;
   let weekSecs = 0;
   let monthSecs = 0;
+  let breakTimeSecs = 0; // Track break time
+  let overtimeSecs = 0; // Track overtime
   const dailyMap: Record<string, number> = {};
-  const attendancePairs: { in: AttendanceLog, out: AttendanceLog | null }[] = [];
+  const attendancePairs: { in: AttendanceLog, out: AttendanceLog | null, breakTime?: number, overtime?: number }[] = [];
   let lastSignInLog: AttendanceLog | null = null;
+  let lastBreakStartLog: AttendanceLog | null = null;
+  let isOnBreak = false;
 
   // Process logs to find pairs and calculate durations
   const sortedLogs = (logs || []).sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
@@ -163,13 +184,67 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
       } catch { return 'invalid-date'; } // Handle potential errors
   };
 
+  // First pass: collect all break periods
+  const breakPeriods: { start: AttendanceLog, end: AttendanceLog | null }[] = [];
+
   for (let i = 0; i < sortedLogs.length; i++) {
-    if (processedIndices.has(i)) continue; // Skip if already part of a pair
+    const currentLog = sortedLogs[i];
+
+    if (currentLog.event_type === 'break_start') {
+      let foundBreakEnd = false;
+
+      // Look for matching break_end
+      for (let j = i + 1; j < sortedLogs.length; j++) {
+        const nextLog = sortedLogs[j];
+        if (
+          nextLog.event_type === 'break_end' &&
+          isSameDay(new Date(currentLog.timestamp || 0), new Date(nextLog.timestamp || 0))
+        ) {
+          breakPeriods.push({ start: currentLog, end: nextLog });
+          processedIndices.add(i);
+          processedIndices.add(j);
+          foundBreakEnd = true;
+          break;
+        }
+      }
+
+      // Handle unpaired break_start
+      if (!foundBreakEnd) {
+        breakPeriods.push({ start: currentLog, end: null });
+        processedIndices.add(i);
+
+        // If the last event is an unpaired break_start, user is currently on break
+        if (i === sortedLogs.length - 1) {
+          isOnBreak = true;
+          lastBreakStartLog = currentLog;
+        }
+      }
+    }
+  }
+
+  // Calculate total break time
+  breakPeriods.forEach(period => {
+    if (period.end) {
+      const breakDuration = calculateDuration(period.start, period.end);
+      breakTimeSecs += breakDuration;
+    } else {
+      // For ongoing break, calculate duration until now
+      if (isOnBreak && lastBreakStartLog) {
+        const ongoingBreakDuration = (now.getTime() - new Date(lastBreakStartLog.timestamp || 0).getTime()) / 1000;
+        breakTimeSecs += ongoingBreakDuration;
+      }
+    }
+  });
+
+  // Second pass: process signin/signout pairs
+  for (let i = 0; i < sortedLogs.length; i++) {
+    if (processedIndices.has(i)) continue; // Skip if already processed
 
     const currentLog = sortedLogs[i];
     if (currentLog.event_type === 'signin') {
       lastSignInLog = currentLog; // Update last sign in
       let foundPair = false;
+
       // Look for the next signout on the same day
       for (let j = i + 1; j < sortedLogs.length; j++) {
         if (processedIndices.has(j)) continue; // Skip if already paired
@@ -183,13 +258,35 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
           const logDate = startOfDay(new Date(currentLog.timestamp || 0));
           const dateStr = dateStrToTimezone(logDate); // Use consistent date format
 
+          // Calculate overtime (if duration > 8 hours)
+          const standardWorkdaySecs = 8 * 3600; // 8 hours in seconds
+          const pairOvertimeSecs = Math.max(0, duration - standardWorkdaySecs);
+
           // Add duration to totals
-          if (isSameDay(logDate, todayStart)) todaySecs += duration;
+          if (isSameDay(logDate, todayStart)) {
+            todaySecs += duration;
+            overtimeSecs += pairOvertimeSecs;
+          }
           if (logDate >= weekStart) weekSecs += duration;
           if (logDate >= monthStart) monthSecs += duration;
           dailyMap[dateStr] = (dailyMap[dateStr] || 0) + duration;
 
-          attendancePairs.push({ in: currentLog, out: nextLog });
+          // Find break periods within this signin/signout pair
+          const pairBreakSecs = breakPeriods
+            .filter(bp =>
+              bp.start.timestamp && bp.end?.timestamp &&
+              new Date(bp.start.timestamp).getTime() >= new Date(currentLog.timestamp || 0).getTime() &&
+              new Date(bp.end.timestamp).getTime() <= new Date(nextLog.timestamp || 0).getTime()
+            )
+            .reduce((total, bp) => total + calculateDuration(bp.start, bp.end!), 0);
+
+          attendancePairs.push({
+            in: currentLog,
+            out: nextLog,
+            overtime: pairOvertimeSecs,
+            breakTime: pairBreakSecs > 0 ? pairBreakSecs : undefined
+          });
+
           processedIndices.add(i);
           processedIndices.add(j);
           foundPair = true;
@@ -197,15 +294,16 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
           break; // Found the pair for this signin
         }
       }
+
       // Handle unpaired signin (add to pairs list with null signout)
       if (!foundPair) {
         attendancePairs.push({ in: currentLog, out: null });
         processedIndices.add(i); // Mark as processed even if unpaired
       }
-    } else {
-        // Handle potential signout without preceding signin (or already processed)
-        processedIndices.add(i); // Mark as processed
-        lastSignInLog = null; // Sign out occurred, reset last sign in
+    } else if (currentLog.event_type === 'signout') {
+      // Handle potential signout without preceding signin
+      processedIndices.add(i); // Mark as processed
+      lastSignInLog = null; // Sign out occurred, reset last sign in
     }
   }
 
@@ -214,7 +312,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Sort daily data for chart
 
   // Determine if user is currently signed in (last processed log was an unpaired signin)
-  const isCurrentlySignedIn = !!lastSignInLog; 
+  const isCurrentlySignedIn = !!lastSignInLog;
 
   // Calculate current dynamic session duration if signed in
   let currentSessionDurationSecs = 0;
@@ -250,7 +348,7 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
       } catch { return 'Invalid Date' }
   }
 
-  // --- Punch Out Handler --- 
+  // --- Punch Out Handler ---
   const handlePunchOut = async () => {
     setPunchStatus({ loading: true, message: 'Processing punch...', error: false });
     try {
@@ -266,10 +364,53 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
       }
       setPunchStatus({ loading: false, message: data.message || 'Punch successful!', error: false });
       // Refresh data after successful punch
-      router.refresh(); 
+      router.refresh();
     } catch (error: any) {
       console.error("Punch out error:", error);
       setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not process punch.'}`, error: true });
+    }
+  };
+
+  // --- Break Handlers ---
+  const handleBreakStart = async () => {
+    setPunchStatus({ loading: true, message: 'Starting break...', error: false });
+    try {
+      const response = await fetch('/api/break', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start' }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+      setPunchStatus({ loading: false, message: data.message || 'Break started!', error: false });
+      // Refresh data after successful break start
+      router.refresh();
+    } catch (error: any) {
+      console.error("Break start error:", error);
+      setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not start break.'}`, error: true });
+    }
+  };
+
+  const handleBreakEnd = async () => {
+    setPunchStatus({ loading: true, message: 'Ending break...', error: false });
+    try {
+      const response = await fetch('/api/break', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'end' }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+      setPunchStatus({ loading: false, message: data.message || 'Break ended!', error: false });
+      // Refresh data after successful break end
+      router.refresh();
+    } catch (error: any) {
+      console.error("Break end error:", error);
+      setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not end break.'}`, error: true });
     }
   };
   // ------------------------
@@ -281,76 +422,273 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
       <motion.div
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
-        transition={{delay:0.05}}
-        whileHover={{ scale: 1.02 }} // Add scale on hover
-        // Add glass effect classes, use bg-card, update text colors
-        // Responsive span (full width on small, half on medium, third on xl+)
-        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col items-center text-foreground transition-shadow hover:shadow-xl"
+        transition={{delay:0.05, type: "spring", stiffness: 100}}
+        whileHover={{ scale: 1.02, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col items-center text-foreground transition-all duration-300"
       >
-        <div className="font-semibold text-lg mb-2 text-foreground">Timesheet</div>
-        <div className="text-muted-foreground text-sm mb-2">{formatFullDate(currentTime)}</div>
-        {/* TODO: Update PieChart colors to match theme */}
-        <DynamicPieChartComponent todaySecs={finalTodaySecs} />
-        <div className="text-3xl font-bold my-2 text-foreground">{formatDuration(finalTodaySecs)}</div>
-        {/* Punch Out Button with Confirmation Dialog */}
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <button
-              disabled={!isCurrentlySignedIn || punchStatus.loading}
-              // Use destructive button styles
-              className="mt-2 px-6 py-2 rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {punchStatus.loading ? 'Processing...' : 'Punch Out'}
-            </button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm Punch Out</AlertDialogTitle>
-              <AlertDialogDescription>
-                You have worked approximately <span className="font-semibold">{formatDuration(finalTodaySecs)}</span> today.
-                Are you sure you want to punch out now?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>No, Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handlePunchOut} disabled={punchStatus.loading}>
-                Yes, Punch Out
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <div className="w-full flex justify-between items-center mb-3">
+          <div className="font-semibold text-lg text-foreground">Timesheet</div>
+          <div className="text-muted-foreground text-xs px-2 py-1 bg-primary/10 rounded-full">{formatFullDate(currentTime)}</div>
+        </div>
+
+        {/* Department Information */}
+        {departmentName && (
+          <div className="w-full mb-4 p-2 bg-primary/10 rounded-lg flex items-center justify-center">
+            <span className="text-sm text-primary font-medium">Department: {departmentName}</span>
+          </div>
+        )}
+
+        {/* PieChart with enhanced styling */}
+        <div className="relative">
+          <DynamicPieChartComponent todaySecs={finalTodaySecs} />
+          <div className="absolute inset-0 flex items-center justify-center flex-col">
+            <ClientOnlyTimeDisplay seconds={finalTodaySecs} />
+            <div className="text-xs text-muted-foreground">today</div>
+          </div>
+        </div>
+
+        {/* Break/Overtime Stats */}
+        <div className="grid grid-cols-2 gap-4 w-full mt-4 mb-4">
+          <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
+            <span className="text-xs text-muted-foreground mb-1">Break</span>
+            <span className="text-sm font-semibold text-foreground">{formatDuration(breakTimeSecs)}</span>
+          </div>
+          <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
+            <span className="text-xs text-muted-foreground mb-1">Overtime</span>
+            <span className="text-sm font-semibold text-foreground">{formatDuration(overtimeSecs)}</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col gap-2 w-full mt-2">
+          {/* Break Buttons */}
+          {isCurrentlySignedIn && !isOnBreak && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={punchStatus.loading}
+                  className="w-full px-6 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold shadow-md transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {punchStatus.loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Processing...
+                    </span>
+                  ) : (
+                    'Start Break'
+                  )}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-card border border-border">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Break Start</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to start your break now?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/90">No, Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleBreakStart}
+                    disabled={punchStatus.loading}
+                    className="bg-amber-500 text-white hover:bg-amber-600"
+                  >
+                    Yes, Start Break
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {/* End Break Button */}
+          {isOnBreak && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={punchStatus.loading}
+                  className="w-full px-6 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white font-semibold shadow-md transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {punchStatus.loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Processing...
+                    </span>
+                  ) : (
+                    'End Break'
+                  )}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-card border border-border">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm End Break</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Your break has been {lastBreakStartLog ? formatDuration((now.getTime() - new Date(lastBreakStartLog.timestamp || 0).getTime()) / 1000) : 'ongoing'}.
+                    Are you ready to return to work?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/90">No, Continue Break</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleBreakEnd}
+                    disabled={punchStatus.loading}
+                    className="bg-green-500 text-white hover:bg-green-600"
+                  >
+                    Yes, End Break
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {/* Punch Out Button */}
+          {isCurrentlySignedIn && !isOnBreak && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={punchStatus.loading}
+                  className="w-full px-6 py-2 rounded-lg bg-destructive hover:bg-destructive/90 text-destructive-foreground font-semibold shadow-md transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {punchStatus.loading ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Processing...
+                    </span>
+                  ) : (
+                    'Punch Out'
+                  )}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-card border border-border">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Confirm Punch Out</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You have worked approximately <span className="font-semibold text-primary">{formatDuration(finalTodaySecs)}</span> today.
+                    Are you sure you want to punch out now?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="bg-secondary text-secondary-foreground hover:bg-secondary/90">No, Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handlePunchOut}
+                    disabled={punchStatus.loading}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Yes, Punch Out
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+
         {/* Display punch status message */}
         {punchStatus.message && (
-          // Adjust colors based on theme
-          <p className={`mt-2 text-sm ${punchStatus.error ? 'text-destructive' : 'text-green-500'}`}>
+          <div className={`mt-3 p-2 w-full text-sm text-center rounded ${punchStatus.error ? 'bg-destructive/10 text-destructive' : 'bg-green-500/10 text-green-500'}`}>
             {punchStatus.message}
-          </p>
+          </div>
         )}
-        {/* TODO: Calculate Break/Overtime dynamically */}
-        <div className="flex w-full justify-between mt-4 text-xs text-muted-foreground">
-          <span>Break --</span>
-          <span>Overtime --</span>
-        </div>
       </motion.div>
 
       {/* Statistics Card */}
       <motion.div
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
-        transition={{delay:0.1}}
-        whileHover={{ scale: 1.02 }} // Add scale on hover
-        // Add glass effect classes, use bg-card, update text colors
-        // Responsive span
-        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col gap-3 text-foreground transition-shadow hover:shadow-xl"
+        transition={{delay:0.1, type: "spring", stiffness: 100}}
+        whileHover={{ scale: 1.02, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col gap-3 text-foreground transition-all duration-300"
       >
-        <div className="font-semibold text-lg mb-2 text-foreground">Statistics</div>
-        <div className="flex flex-col gap-2">
-          {/* Use helper function for colors */}
-          <StatBar label="Today" value={finalTodayHrsDecimal} max={8} color={getStatBarColor('Today')} />
-          <StatBar label="This Week" value={weekHrsDecimal} max={40} color={getStatBarColor('This Week')} />
-          <StatBar label="This Month" value={monthHrsDecimal} max={160} color={getStatBarColor('This Month')} />
-          <StatBar label="Remaining" value={Math.max(0, 8 - finalTodayHrsDecimal)} max={8} color={getStatBarColor('Remaining')} />
-          <StatBar label="Overtime" value={Math.max(0, finalTodayHrsDecimal - 8)} max={8} color={getStatBarColor('Overtime')} />
+        <div className="w-full flex justify-between items-center mb-3">
+          <div className="font-semibold text-lg text-foreground">Statistics</div>
+          <div className="text-xs text-muted-foreground px-2 py-1 bg-primary/10 rounded-full">
+            {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {/* Enhanced stat bars with more visual information */}
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">Today</span>
+              <span className="text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                {finalTodayHrsDecimal.toFixed(1)} / 8 hrs
+              </span>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Today')}`}
+                style={{ width: `${Math.min(finalTodayHrsDecimal / 8 * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">This Week</span>
+              <span className="text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                {weekHrsDecimal.toFixed(1)} / 40 hrs
+              </span>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Week')}`}
+                style={{ width: `${Math.min(weekHrsDecimal / 40 * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">This Month</span>
+              <span className="text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                {monthHrsDecimal.toFixed(1)} / 160 hrs
+              </span>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Month')}`}
+                style={{ width: `${Math.min(monthHrsDecimal / 160 * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">Remaining Today</span>
+              <span className="text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                {Math.max(0, 8 - finalTodayHrsDecimal).toFixed(1)} hrs
+              </span>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Remaining')}`}
+                style={{ width: `${Math.min((Math.max(0, 8 - finalTodayHrsDecimal)) / 8 * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium">Overtime Today</span>
+              <span className="text-xs font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                {Math.max(0, finalTodayHrsDecimal - 8).toFixed(1)} hrs
+              </span>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Overtime')}`}
+                style={{ width: `${Math.min((Math.max(0, finalTodayHrsDecimal - 8)) / 8 * 100, 100)}%` }}
+              ></div>
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -358,69 +696,179 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
       <motion.div
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
-        transition={{delay:0.15}}
-        whileHover={{ scale: 1.02 }} // Add scale on hover
-        // Add glass effect classes, use bg-card, update text colors
-        // Responsive span
-        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+        transition={{delay:0.15, type: "spring", stiffness: 100}}
+        whileHover={{ scale: 1.02, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300"
       >
-        <div className="font-semibold text-lg mb-2 text-foreground">Today Activity</div>
-        {/* Use primary color for border */}
-        <ol className="border-l-2 border-primary pl-6">
-          {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).map((l) => (
-            <li key={l.id} className="mb-3 relative">
-              {/* Adjust signin/signout dot colors */}
-              <span className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full ${l.event_type === 'signin' ? 'bg-green-500' : 'bg-destructive'}`} />
-              {/* Format activity time using the global timezone */}
-              <span className="font-semibold text-sm ml-2 text-foreground">{l.event_type === 'signin' ? 'Punch In' : 'Punch Out'} at {formatTime(l.timestamp)}</span>
-            </li>
-          ))}
-           {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).length === 0 && <li className="text-sm text-muted-foreground">No activity today.</li>}
-        </ol>
+        <div className="w-full flex justify-between items-center mb-4">
+          <div className="font-semibold text-lg text-foreground">Today Activity</div>
+          <div className="text-xs text-muted-foreground px-2 py-1 bg-primary/10 rounded-full">
+            {formatDate(todayStart.getTime())}
+          </div>
+        </div>
+
+        {/* Activity Timeline */}
+        <div className="relative">
+          {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).length > 0 ? (
+            <ol className="border-l-2 border-primary/50 pl-6 space-y-4">
+              {sortedLogs.filter(l => isSameDay(new Date(l.timestamp || 0), todayStart)).map((l) => (
+                <li key={l.id} className="relative">
+                  {/* Enhanced dot with animation */}
+                  <div className="absolute -left-[11px] top-0 flex items-center justify-center">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                      l.event_type === 'signin' ? 'bg-green-500/20' :
+                      l.event_type === 'signout' ? 'bg-destructive/20' :
+                      l.event_type === 'break_start' ? 'bg-amber-500/20' : 'bg-blue-500/20'
+                    }`}>
+                      <span className={`w-3 h-3 rounded-full ${
+                        l.event_type === 'signin' ? 'bg-green-500' :
+                        l.event_type === 'signout' ? 'bg-destructive' :
+                        l.event_type === 'break_start' ? 'bg-amber-500' : 'bg-blue-500'
+                      }`} />
+                    </span>
+                  </div>
+
+                  {/* Card-like activity entry */}
+                  <div className="bg-primary/5 rounded-lg p-3 transition-all duration-300 hover:bg-primary/10">
+                    <div className="font-semibold text-sm text-foreground">
+                      {l.event_type === 'signin' ? 'Punch In' :
+                       l.event_type === 'signout' ? 'Punch Out' :
+                       l.event_type === 'break_start' ? 'Break Start' : 'Break End'}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 flex items-center">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {formatTime(l.timestamp)}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="bg-muted/20 rounded-lg p-6 text-center">
+              <div className="text-muted-foreground mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <p className="text-sm text-muted-foreground">No activity recorded today</p>
+              <p className="text-xs text-muted-foreground mt-1">Use the QR scanner to punch in</p>
+            </div>
+          )}
+        </div>
       </motion.div>
 
       {/* Attendance List Table */}
       <motion.div
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
-        transition={{delay:0.2}}
-        whileHover={{ scale: 1.01 }} // Slightly less scale for larger card
-        // Add glass effect classes, use bg-card, update text colors
-        // Responsive span (full width on small/medium, 2/3 on xl+)
-        className="col-span-1 md:col-span-2 xl:col-span-2 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+        transition={{delay:0.2, type: "spring", stiffness: 100}}
+        whileHover={{ scale: 1.01, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
+        className="col-span-1 md:col-span-2 xl:col-span-2 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300"
       >
-        <div className="font-semibold text-lg mb-4 text-foreground">Attendance List</div>
-        <div className="overflow-x-auto">
+        <div className="w-full flex justify-between items-center mb-4">
+          <div className="font-semibold text-lg text-foreground">Attendance Records</div>
+          <div className="text-xs text-muted-foreground px-2 py-1 bg-primary/10 rounded-full">
+            Last {attendancePairs.length} entries
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-border/50">
           <table className="min-w-full text-sm">
             <thead>
-              {/* Use card/muted for header bg, update text */}
-              <tr className="bg-muted/50 dark:bg-muted/50">
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Date</th>
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Punch In</th>
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Punch Out</th>
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Production</th>
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Break</th>
-                <th className="px-4 py-2 text-left font-semibold text-muted-foreground">Overtime</th>
+              <tr className="bg-primary/5">
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Date</th>
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Punch In</th>
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Punch Out</th>
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Production</th>
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Break</th>
+                <th className="px-4 py-3 text-left font-semibold text-foreground">Overtime</th>
               </tr>
             </thead>
             <tbody>
-              {attendancePairs.map((pair, idx) => (
-                // Use accent for hover, update text
-                <tr key={pair.in.id || idx} className="border-b border-border hover:bg-accent/30 dark:hover:bg-accent/30 transition-colors">
-                  {/* Format table dates/times using the global timezone */}
-                  <td className="px-4 py-2 text-muted-foreground">{formatDate(pair.in.timestamp)}</td>
-                  <td className="px-4 py-2 text-foreground">{formatTime(pair.in.timestamp)}</td>
-                  <td className="px-4 py-2 text-foreground">{pair.out ? formatTime(pair.out.timestamp) : <span className="text-orange-500">Missing</span>}</td>
-                  {/* Use new formatDuration function */}
-                  <td className="px-4 py-2 text-foreground">{pair.out ? formatDuration(calculateDuration(pair.in, pair.out)) : '-'}</td>
-                  {/* TODO: Calculate Break/Overtime */}
-                  <td className="px-4 py-2 text-muted-foreground">--</td>
-                  <td className="px-4 py-2 text-muted-foreground">--</td>
+              {attendancePairs.length > 0 ? (
+                attendancePairs.map((pair, idx) => (
+                  <tr
+                    key={pair.in.id || idx}
+                    className={clsx(
+                      "border-b border-border/50 hover:bg-primary/5 transition-colors",
+                      idx % 2 === 0 ? "bg-transparent" : "bg-muted/20"
+                    )}
+                  >
+                    {/* Date column with better formatting */}
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-foreground">{formatDate(pair.in.timestamp)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {new Date(pair.in.timestamp || 0).toLocaleDateString('en-US', { weekday: 'short' })}
+                      </div>
+                    </td>
+
+                    {/* Punch In time */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center">
+                        <span className="w-2 h-2 rounded-full bg-green-500 mr-2"></span>
+                        <span className="text-foreground">{formatTime(pair.in.timestamp)}</span>
+                      </div>
+                    </td>
+
+                    {/* Punch Out time */}
+                    <td className="px-4 py-3">
+                      {pair.out ? (
+                        <div className="flex items-center">
+                          <span className="w-2 h-2 rounded-full bg-destructive mr-2"></span>
+                          <span className="text-foreground">{formatTime(pair.out.timestamp)}</span>
+                        </div>
+                      ) : (
+                        <span className="px-2 py-1 rounded-full text-xs bg-orange-500/20 text-orange-500 font-medium">Missing</span>
+                      )}
+                    </td>
+
+                    {/* Production time */}
+                    <td className="px-4 py-3 font-medium">
+                      {pair.out ? (
+                        <span className="text-foreground">{formatDuration(calculateDuration(pair.in, pair.out))}</span>
+                      ) : (
+                        <span className="text-muted-foreground">--</span>
+                      )}
+                    </td>
+
+                    {/* Break time */}
+                    <td className="px-4 py-3">
+                      {pair.breakTime ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-primary/10 text-foreground">
+                          {formatDuration(pair.breakTime)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">--</span>
+                      )}
+                    </td>
+
+                    {/* Overtime */}
+                    <td className="px-4 py-3">
+                      {pair.overtime && pair.overtime > 0 ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-green-500/10 text-green-500 font-medium">
+                          {formatDuration(pair.overtime)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">--</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="text-center py-8">
+                    <div className="flex flex-col items-center justify-center text-muted-foreground">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-sm">No attendance records found</p>
+                      <p className="text-xs mt-1">Use the QR scanner to record your attendance</p>
+                    </div>
+                  </td>
                 </tr>
-              ))}
-               {attendancePairs.length === 0 && (
-                 <tr><td colSpan={6} className="text-center py-4 text-muted-foreground">No attendance data.</td></tr>
-                )}
+              )}
             </tbody>
           </table>
         </div>
@@ -449,9 +897,9 @@ export default function DashboardClient({ logs }: { logs: AttendanceLog[] }) { /
               formatter={(value: number, name: string, props: any) => {
                   // The raw value here is decimal hours from dailyData
                   // Convert back to seconds to use formatDurationTooltip
-                  const seconds = value * 3600; 
-                  return [formatDurationTooltip(seconds), 'Duration']; 
-              }} 
+                  const seconds = value * 3600;
+                  return [formatDurationTooltip(seconds), 'Duration'];
+              }}
               cursor={{fill: 'var(--color-accent)', fillOpacity: 0.3}}
               contentStyle={{ backgroundColor: 'var(--color-popover)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)' }}
               labelStyle={{ color: 'var(--color-popover-foreground)' }}

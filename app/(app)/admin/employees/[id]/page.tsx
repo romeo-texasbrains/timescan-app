@@ -19,6 +19,7 @@ async function updateProfile(formData: FormData) {
   const profileId = formData.get('id') as string
   const fullName = formData.get('full_name') as string
   const role = formData.get('role') as Role
+  const departmentId = formData.get('department_id') as string || null
   // Construct the path for redirecting back to the edit page
   const currentPath = `/admin/employees/${profileId}`
 
@@ -35,7 +36,7 @@ async function updateProfile(formData: FormData) {
     .update({
       full_name: fullName,
       role: role,
-      // Add other updatable fields here if needed (e.g., department)
+      department_id: departmentId === 'null' ? null : departmentId,
     })
     .eq('id', profileId)
 
@@ -73,6 +74,16 @@ export default async function EditEmployeePage({ params, searchParams }: EditEmp
     .select('*') // Select all profile fields
     .eq('id', profileId)
     .single<Profile>() // Expect a single result
+
+  // Fetch departments for dropdown
+  const { data: departments, error: departmentsError } = await supabase
+    .from('departments')
+    .select('id, name')
+    .order('name')
+
+  if (departmentsError) {
+    console.error("Error fetching departments:", departmentsError)
+  }
 
   if (fetchError || !profile) {
     return (
@@ -157,13 +168,21 @@ export default async function EditEmployeePage({ params, searchParams }: EditEmp
               </Select>
             </div>
 
-            {/* Add other fields like Department here if needed */}
-            {/* Example:
+            {/* Department */}
             <div className="space-y-2">
-              <Label htmlFor="department">Department</Label>
-              <Input id="department" name="department" defaultValue={profile.department || ''} />
+              <Label htmlFor="department_id">Department</Label>
+              <Select name="department_id" defaultValue={profile.department_id || 'null'}>
+                <SelectTrigger id="department_id">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="null">No Department</SelectItem>
+                  {departments?.map(dept => (
+                    <SelectItem key={dept.id} value={dept.id}>{dept.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            */}
 
             <div className="flex justify-end space-x-3 pt-4">
               <Link href="/admin/employees">

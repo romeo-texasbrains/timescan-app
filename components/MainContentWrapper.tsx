@@ -23,10 +23,21 @@ export default function MainContentWrapper({ children, userEmail, timezone }: Ma
     const handleResize = () => {
        setIsSidebarCollapsed(isMobileWidth());
     };
+
+    // Listen for sidebar state changes from Sidebar component
+    const handleSidebarStateChange = (event: CustomEvent<{ isCollapsed: boolean }>) => {
+      setIsSidebarCollapsed(event.detail.isCollapsed);
+    };
+
     window.addEventListener('resize', handleResize);
+    window.addEventListener('sidebarStateChange', handleSidebarStateChange as EventListener);
+
     handleResize(); // Initial check
 
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('sidebarStateChange', handleSidebarStateChange as EventListener);
+    };
   }, []);
 
   // Update collapse state on route change if needed (optional)
@@ -35,15 +46,18 @@ export default function MainContentWrapper({ children, userEmail, timezone }: Ma
   }, [pathname]);
 
   return (
-     <div
-         className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'ml-20' : 'ml-64'} overflow-x-hidden`}
-        >
-        {/* Pass timezone prop to Topbar */}
-        <Topbar userEmail={userEmail} timezone={timezone} />
+    <>
+      {/* Topbar is now outside the main content wrapper */}
+      <Topbar userEmail={userEmail} timezone={timezone} isSidebarCollapsed={isSidebarCollapsed} />
+
+      <div
+        className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'ml-20' : 'ml-64'} overflow-x-hidden pt-16`}
+      >
         <main className="flex-1 p-4 sm:p-6 md:p-8 lg:p-10">
           {/* Children will inherit the TimezoneContext provided in layout.tsx */}
           {children}
         </main>
       </div>
+    </>
   )
-} 
+}
