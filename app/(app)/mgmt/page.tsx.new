@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { Suspense } from 'react'
 import ClientWrapper from './ClientWrapper'
-import { format } from 'date-fns'
 
 // Type for employee status
 type EmployeeStatus = {
@@ -19,7 +18,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   // Get today's date in ISO format for filtering
   const today = new Date()
   const todayStr = format(today, 'yyyy-MM-dd')
-
+  
   // Get manager's department first
   const { data: managerDeptProfile, error: managerDeptProfileError } = await supabase
     .from('profiles')
@@ -42,23 +41,17 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     console.error('Error fetching manager full profile:', managerFullProfileError)
   }
 
-  // Query for team members in the manager's department using two approaches
-  let teamMembers = [];
-  let teamMembersError = null;
-
-  // Approach 1: Get employees from user_roles table
+  // Now query for team members in the manager's department
+  // Step 1: Get all user_roles in the manager's department
   const { data: departmentUserRoles, error: departmentUserRolesError } = await supabase
     .from('user_roles')
     .select('user_id, role, department_id')
-    .eq('department_id', managerDeptProfile?.department_id);
+    .eq('department_id', managerDeptProfile?.department_id)
 
-  // Approach 2: Get employees directly from profiles table by department_id
-  const { data: departmentProfiles, error: departmentProfilesError } = await supabase
-    .from('profiles')
-    .select('id, full_name, email, role, department_id')
-    .eq('department_id', managerDeptProfile?.department_id);
+  // Step 2: Get the profiles for these users
+  let teamMembers = [];
+  let teamMembersError = null;
 
-  // Process user_roles approach
   if (departmentUserRoles && departmentUserRoles.length > 0) {
     const userIds = departmentUserRoles.map(ur => ur.user_id);
 
@@ -68,53 +61,29 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
       .in('id', userIds);
 
     if (profilesError) {
-      console.error('Error fetching profiles from user_roles:', profilesError);
-    } else if (profilesData) {
+      teamMembersError = profilesError;
+    } else {
       // Combine the data
-      const userRolesTeamMembers = departmentUserRoles.map(ur => {
-        const profile = profilesData.find(p => p.id === ur.user_id);
-        if (profile) {
-          return {
-            user_id: ur.user_id,
-            role: ur.role,
-            department_id: ur.department_id,
-            profiles: profile
-          };
-        }
-        return null;
-      }).filter(Boolean); // Remove null entries
-
-      teamMembers = [...teamMembers, ...userRolesTeamMembers];
+      teamMembers = departmentUserRoles.map(ur => {
+        const profile = profilesData?.find(p => p.id === ur.user_id);
+        return {
+          user_id: ur.user_id,
+          role: ur.role,
+          department_id: ur.department_id,
+          profiles: profile
+        };
+      });
     }
   } else if (departmentUserRolesError) {
-    console.error('Error fetching department user roles:', departmentUserRolesError);
+    teamMembersError = departmentUserRolesError;
   }
 
-  // Process profiles approach
-  if (departmentProfiles && departmentProfiles.length > 0) {
-    // Create team members from profiles
-    const profilesTeamMembers = departmentProfiles.map(profile => ({
-      user_id: profile.id,
-      role: profile.role,
-      department_id: profile.department_id,
-      profiles: profile
-    }));
-
-    // Add to team members, avoiding duplicates
-    const existingIds = new Set(teamMembers.map(tm => tm.user_id));
-    const newMembers = profilesTeamMembers.filter(tm => !existingIds.has(tm.user_id));
-
-    teamMembers = [...teamMembers, ...newMembers];
-  } else if (departmentProfilesError) {
-    console.error('Error fetching department profiles:', departmentProfilesError);
+  if (teamMembersError) {
+    console.error('Error fetching team members:', teamMembersError)
   }
-
-  // Log the number of team members found
-  console.log(`Found ${teamMembers.length} team members in department ${managerDeptProfile?.department_id}`);
 
   // Extract profile data from the joined query, filtering out undefined profiles
-  const employeeProfiles = teamMembers
-    .filter(member => member && member.profiles)
+  const employeeProfiles = teamMembers?.filter(member => member && member.profiles)
     .map(member => member.profiles) || [];
 
   // Combine the current user with team members, ensuring managerFullProfile is defined
@@ -221,7 +190,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     employeesInDepartment.forEach(employee => {
       // Skip if employee is undefined or doesn't have an id
       if (!employee || !employee.id) return;
-
+      
       const latestStatus = latestStatusMap.get(employee.id);
 
       if (latestStatus) {
@@ -255,7 +224,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   });
 
   const activeEmployeeCount = activeEmployeeIds.size;
-
+  
   // Helper function to get activity label
   function getActivityLabel(status: 'signed_in' | 'signed_out' | 'on_break'): string {
     switch (status) {
@@ -264,7 +233,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
       case 'on_break': return 'On Break';
     }
   }
-
+  
   return {
     employeeStatuses,
     employeesInDepartment,
@@ -286,24 +255,24 @@ export default async function ManagerDashboard() {
   if (error || !user) {
     redirect('/login')
   }
-
+  
   // Get manager's profile
   const { data: managerProfile, error: managerProfileError } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single()
-
+    
   if (managerProfileError) {
     console.error('Error fetching manager profile:', managerProfileError)
     return <div>Error loading profile. Please try again.</div>
   }
-
+  
   // Check if user is a manager or admin
   if (managerProfile.role !== 'manager' && managerProfile.role !== 'admin') {
     return redirect('/?message=You do not have permission to access this page.')
   }
-
+  
   // Wrap the content in Suspense to show loading indicator
   return (
     <Suspense fallback={<div className="flex justify-center items-center min-h-screen"><LoadingSpinner size="lg" /></div>}>

@@ -6,6 +6,7 @@ import { Database } from '@/lib/supabase/database.types'
 import { Toaster } from 'sonner' // Correct import path for sonner
 import { TimezoneProvider } from '@/context/TimezoneContext' // Import the Provider
 import MainContentWrapper from '@/components/MainContentWrapper' // Import the new component
+import LoadingProvider from '@/context/LoadingContext' // Import the Loading Provider
 
 // Define role type here as well
 type UserRole = 'user' | 'manager' | 'admin';
@@ -17,18 +18,37 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const cookieStore = cookies()
   const supabase = await createClient() // Use server-side Supabase
 
-  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  // Get the user session
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-  if (userError || !user) {
-    console.log('Redirecting to login from layout');
+  // Check if session is valid
+  if (!session || sessionError) {
+    console.log('Redirecting to login from layout - invalid session');
     return redirect('/login?message=Please log in.');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // Get the user data
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+  // If there's an error getting the user or no user, redirect to login
+  if (userError || !user) {
+    console.error('Error getting user in layout:', userError);
+    return redirect('/login?message=Authentication error. Please log in again.');
+  }
+
+  let profile = null;
+  let profileError = null;
+
+  if (user && user.id) {
+    const profileResponse = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    profile = profileResponse.data;
+    profileError = profileResponse.error;
+  }
 
   if (profileError) {
     console.error('Error fetching profile in layout:', profileError);
@@ -37,7 +57,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const userRole = (profile?.role as UserRole) || 'user';
-  const userEmail = user.email || 'User';
+  const userEmail = user?.email || 'User';
 
   // --- Fetch Timezone Setting ---
   let timezone = 'UTC'; // Default string value
@@ -49,12 +69,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .eq('id', 1)
       .single(); // Get the single row object
 
-    if (tzError && tzError.code !== 'PGRST116') { // Ignore row not found
-      throw tzError;
-    }
-    // Check if data and timezone property exist and are string
-    if (settings?.timezone && typeof settings.timezone === 'string') {
-      timezone = settings.timezone;
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting in layout:", tzError);
+      }
+    } else {
+      // Check if data and timezone property exist and are string
+      if (settings?.timezone && typeof settings.timezone === 'string') {
+        timezone = settings.timezone;
+      }
     }
   } catch (error) {
     console.error("Error fetching timezone setting in layout:", error);
@@ -66,20 +89,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Or handled differently, maybe via a server action in Sidebar
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar now needs user info passed as props */}
-      <Sidebar
-        role={userRole}
-      />
+    <LoadingProvider>
+      <div className="min-h-screen bg-background flex">
+        {/* Sidebar now needs user info passed as props */}
+        <Sidebar
+          role={userRole}
+        />
 
-      {/* Wrap MainContentWrapper with TimezoneProvider */}
-      <TimezoneProvider initialTimezone={timezone}>
-        <MainContentWrapper userEmail={userEmail} timezone={timezone}>
-          {children}
-        </MainContentWrapper>
-      </TimezoneProvider>
-      <Toaster /> {/* Add Toaster here for sonner notifications */}
-    </div>
+        {/* Wrap MainContentWrapper with TimezoneProvider */}
+        <TimezoneProvider initialTimezone={timezone}>
+          <MainContentWrapper userEmail={userEmail} timezone={timezone}>
+            <div className="mobile-spacing">
+              {children}
+            </div>
+          </MainContentWrapper>
+        </TimezoneProvider>
+        <Toaster position="top-center" /> {/* Add Toaster here for sonner notifications */}
+      </div>
+    </LoadingProvider>
   );
 }
 

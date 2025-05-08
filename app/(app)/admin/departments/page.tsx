@@ -9,68 +9,68 @@ import { createDepartment, deleteDepartment } from '@/app/actions/adminActions'
 
 export default async function DepartmentsPage() {
   const supabase = await createClient()
-  
+
   // Check if user is admin
   const { data: { user }, error: authError } = await supabase.auth.getUser()
-  
+
   if (authError || !user) {
     redirect('/login')
   }
-  
+
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', user.id)
     .single()
-  
+
   if (profileError || profile?.role !== 'admin') {
     redirect('/')
   }
-  
+
   // Fetch departments
   const { data: departments, error: departmentsError } = await supabase
     .from('departments')
     .select('*')
     .order('name')
-  
+
   if (departmentsError) {
     console.error('Error fetching departments:', departmentsError)
   }
-  
+
   // Fetch employee counts per department
   const { data: profiles, error: profilesError } = await supabase
     .from('profiles')
     .select('department_id')
-  
+
   if (profilesError) {
     console.error('Error fetching profiles:', profilesError)
   }
-  
+
   // Count employees per department
   const departmentCounts: Record<string, number> = {}
-  
+
   profiles?.forEach(profile => {
     if (profile.department_id) {
       departmentCounts[profile.department_id] = (departmentCounts[profile.department_id] || 0) + 1
     }
   })
-  
+
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Departments</h1>
-        <Link href="/admin/departments/new">
-          <Button>
+    <div className="container mx-auto p-3 sm:p-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Departments</h1>
+        <Link href="/admin/departments/new" className="w-full sm:w-auto">
+          <Button className="w-full sm:w-auto touch-manipulation active:scale-95 transition-transform">
             <PlusIcon className="h-4 w-4 mr-2" />
             Add Department
           </Button>
         </Link>
       </div>
-      
+
       {departments && departments.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {departments.map(department => (
-            <Card key={department.id} className="overflow-hidden">
+            <Card key={department.id} className="overflow-hidden hover:shadow-lg transition-shadow">
               <CardHeader className="pb-3">
                 <CardTitle>{department.name}</CardTitle>
                 <CardDescription className="line-clamp-2">
@@ -89,16 +89,25 @@ export default async function DepartmentsPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex justify-end gap-2 border-t pt-4">
-                <form action={deleteDepartment}>
+              <CardFooter className="flex flex-col xs:flex-row xs:justify-end gap-2 border-t pt-4">
+                <form action={deleteDepartment} className="w-full xs:w-auto">
                   <input type="hidden" name="id" value={department.id} />
-                  <Button variant="destructive" size="sm" type="submit">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    type="submit"
+                    className="w-full xs:w-auto touch-manipulation active:scale-95 transition-transform"
+                  >
                     <TrashIcon className="h-4 w-4 mr-1" />
                     Delete
                   </Button>
                 </form>
-                <Link href={`/admin/departments/${department.id}`}>
-                  <Button variant="outline" size="sm">
+                <Link href={`/admin/departments/${department.id}`} className="w-full xs:w-auto">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full xs:w-auto touch-manipulation active:scale-95 transition-transform"
+                  >
                     <PencilIcon className="h-4 w-4 mr-1" />
                     Edit
                   </Button>
@@ -108,11 +117,11 @@ export default async function DepartmentsPage() {
           ))}
         </div>
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardContent className="flex flex-col items-center justify-center py-8 sm:py-12">
             <p className="text-muted-foreground mb-4">No departments found</p>
-            <Link href="/admin/departments/new">
-              <Button>
+            <Link href="/admin/departments/new" className="w-full sm:w-auto">
+              <Button className="w-full sm:w-auto touch-manipulation active:scale-95 transition-transform">
                 <PlusIcon className="h-4 w-4 mr-2" />
                 Add Department
               </Button>

@@ -29,7 +29,8 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Adjustments', href: '/mgmt/adjustments', icon: DocumentTextIcon },
   ],
   admin: [
-    { label: 'Dashboard', href: '/admin', icon: HomeIcon },
+    { label: 'Dashboard', href: '/admin/dashboard', icon: HomeIcon },
+    { label: 'Admin', href: '/admin', icon: ChartBarIcon },
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
     { label: 'Employees', href: '/admin/employees', icon: UsersIcon },
@@ -57,7 +58,8 @@ const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth <
 export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
   const pathname = usePathname();
   const links = sections[role] || sections.user;
-  const [isCollapsed, setIsCollapsed] = useState(isMobileWidth());
+  // Start with true for server rendering to avoid hydration mismatch
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isLoggingOut, startLogoutTransition] = useTransition();
 
   useEffect(() => {
@@ -131,7 +133,8 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       className={clsx(
         "fixed top-0 left-0 h-screen flex flex-col shadow-xl z-30",
-        "bg-sidebar/80 dark:bg-sidebar/80 backdrop-blur-lg border-r border-white/10 text-sidebar-foreground"
+        "bg-sidebar/80 dark:bg-sidebar/80 backdrop-blur-lg border-r border-white/10 text-sidebar-foreground",
+        "touch-manipulation" // Improve touch handling
       )}
     >
        {/* Header Section - Logo and Title */}
@@ -163,7 +166,6 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
             </motion.span>
           )}
         </AnimatePresence>
-        {/* Collapse button removed from here */}
       </div>
 
        {/* Collapse Toggle Button Section - Moved below header */}
@@ -174,10 +176,11 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
             className={clsx(
                 "flex items-center justify-center p-2 rounded-lg w-full",
                 "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors",
-                 !isCollapsed && "ml-auto w-auto" // Align right only when expanded
+                "active:bg-sidebar-accent active:text-sidebar-accent-foreground", // Better touch feedback
+                !isCollapsed && "ml-auto w-auto" // Align right only when expanded
             )}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
           >
             <motion.div
                 animate={{ rotate: isCollapsed ? 180 : 0 }}
@@ -196,8 +199,9 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
             href={href}
             title={isCollapsed ? label : undefined}
             className={clsx(
-              'flex items-center gap-3 py-2.5 rounded-lg transition-all duration-200 ease-in-out',
+              'flex items-center gap-3 py-3 rounded-lg transition-all duration-200 ease-in-out',
               'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              'active:bg-sidebar-accent/80 active:text-sidebar-accent-foreground', // Better touch feedback
               pathname === href && 'bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-md',
               isCollapsed ? 'px-6 justify-center hover:scale-105' : 'px-4 hover:translate-x-1'
             )}
@@ -227,10 +231,11 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
           title={isCollapsed ? "Logout" : undefined}
           disabled={isLoggingOut}
           className={clsx(
-            "flex items-center gap-2 w-full py-2.5 rounded-lg transition-all duration-200 ease-in-out font-medium",
+            "flex items-center gap-2 w-full py-3 rounded-lg transition-all duration-200 ease-in-out font-medium",
             "bg-sidebar-accent/80 hover:bg-sidebar-accent text-sidebar-accent-foreground",
-             isCollapsed ? 'px-6 justify-center hover:scale-105' : 'px-4 hover:translate-x-1',
-             isLoggingOut && 'opacity-50 cursor-not-allowed'
+            "active:bg-sidebar-accent/90 active:scale-95", // Better touch feedback
+            isCollapsed ? 'px-6 justify-center hover:scale-105' : 'px-4 hover:translate-x-1',
+            isLoggingOut && 'opacity-50 cursor-not-allowed'
           )}
         >
           <ArrowLeftOnRectangleIcon className={clsx("h-5 w-5 flex-shrink-0", isLoggingOut && 'animate-pulse')} />

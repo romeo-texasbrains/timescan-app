@@ -51,9 +51,9 @@ export default function MainContentWrapper({ children, userEmail, timezone }: Ma
       <Topbar userEmail={userEmail} timezone={timezone} isSidebarCollapsed={isSidebarCollapsed} />
 
       <div
-        className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'ml-20' : 'ml-64'} overflow-x-hidden pt-16`}
+        className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'ml-20' : 'ml-64'} overflow-x-hidden pt-14`}
       >
-        <main className="flex-1 p-4 sm:p-6 md:p-8 lg:p-10">
+        <main className="flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing">
           {/* Children will inherit the TimezoneContext provided in layout.tsx */}
           {children}
         </main>

@@ -143,3 +143,166 @@ body {
 .animate-scan {
   animation: scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
+
+/* Mobile-specific styles */
+@media (max-width: 640px) {
+  /* Improved spacing for mobile */
+  .mobile-container {
+    @apply px-3 py-4;
+  }
+
+  /* Card styles for mobile */
+  .mobile-card {
+    @apply rounded-xl shadow-md border border-border/30 p-4 mb-5 bg-card/90;
+  }
+
+  /* Better touch targets */
+  .mobile-touch-target {
+    @apply min-h-12 min-w-12 flex items-center justify-center;
+  }
+
+  /* Mobile spacing utilities */
+  .mobile-spacing {
+    @apply space-y-5;
+  }
+
+  /* Mobile text adjustments */
+  .mobile-text {
+    @apply text-sm leading-relaxed;
+  }
+
+  /* Mobile headings */
+  .mobile-heading {
+    @apply text-lg font-semibold mb-3;
+  }
+
+  /* Mobile section spacing */
+  .mobile-section {
+    @apply mb-6;
+  }
+
+  /* Improve button spacing on mobile */
+  button, a[role="button"], .button, .btn {
+    @apply py-2.5 px-4 min-h-[2.5rem] touch-manipulation;
+  }
+
+  /* Improve form controls on mobile */
+  input, select, textarea {
+    @apply min-h-[2.75rem] py-2.5 px-3;
+  }
+
+  /* Improve card spacing */
+  .card, .bg-card, [class*="bg-card"] {
+    @apply p-4;
+  }
+
+  /* Fix table overflow issues */
+  .overflow-x-auto {
+    @apply max-w-full;
+  }
+
+  /* Improve text truncation */
+  .truncate-mobile {
+    @apply truncate max-w-full;
+  }
+}
+
+/* Responsive table styles for mobile card view */
+@media (max-width: 640px) {
+  table.responsive-table {
+    @apply block border-collapse;
+  }
+
+  table.responsive-table thead {
+    @apply hidden;
+  }
+
+  table.responsive-table tbody {
+    @apply block space-y-6;
+  }
+
+  table.responsive-table tr {
+    @apply block rounded-lg border border-border/50 shadow-sm bg-card mb-6 overflow-hidden;
+  }
+
+  table.responsive-table td {
+    @apply block relative pl-[6.5rem] pr-4 py-3 border-b border-border/10 last:border-0 min-h-[3.5rem];
+  }
+
+  table.responsive-table td[data-header="Actions"] {
+    @apply pl-4 text-right;
+  }
+
+  table.responsive-table td::before {
+    content: attr(data-header);
+    @apply absolute left-4 top-3 font-medium text-xs uppercase text-muted-foreground w-[5.5rem] truncate;
+  }
+
+  table.responsive-table td[data-header="Actions"]::before {
+    @apply hidden;
+  }
+
+  /* Ensure content inside cells doesn't overflow */
+  table.responsive-table td > div {
+    @apply w-full overflow-hidden;
+  }
+
+  /* Improve action buttons layout on mobile */
+  table.responsive-table td .flex.justify-end,
+  table.responsive-table td .flex.space-x-2 {
+    @apply flex-wrap gap-2;
+  }
+
+  /* Ensure employee info doesn't overflow */
+  table.responsive-table td .flex.items-center {
+    @apply flex-wrap;
+  }
+
+  /* Improve text display */
+  table.responsive-table td .text-sm {
+    @apply whitespace-normal;
+  }
+
+  table.responsive-table td .text-xs {
+    @apply truncate;
+  }
+
+  /* Improve date display */
+  table.responsive-table td[data-header="Date & Time"] .text-sm {
+    @apply text-right;
+  }
+
+  table.responsive-table td[data-header="Date & Time"] .text-xs {
+    @apply text-right;
+  }
+
+  /* Improve employee name display */
+  table.responsive-table td[data-header="Employee"] > div > div:last-child {
+    @apply max-w-full;
+  }
+
+  /* Improve employee initials display */
+  table.responsive-table td[data-header="Employee"] .h-10.w-10 {
+    @apply h-8 w-8 mr-2;
+  }
+
+  /* Improve event type display */
+  table.responsive-table td[data-header="Event Type"] .text-right {
+    @apply flex justify-end;
+  }
+
+  /* Improve dropdown menu positioning */
+  table.responsive-table td[data-header="Actions"] {
+    @apply py-2;
+  }
+
+  /* Ensure dropdown appears in the right position */
+  table.responsive-table td[data-header="Actions"] .relative {
+    @apply relative;
+  }
+
+  /* Make dropdown menu appear above other elements */
+  table.responsive-table td[data-header="Actions"] .absolute {
+    @apply absolute right-0 mt-1 z-[100];
+  }
+}
