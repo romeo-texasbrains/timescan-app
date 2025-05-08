@@ -42,8 +42,9 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
 
 // Animation variants for sidebar width
 const sidebarVariants = {
-  open: { width: '16rem' },
-  collapsed: { width: '5rem' }
+  open: { width: '16rem', x: 0 },
+  collapsed: { width: '5rem', x: 0 },
+  hidden: { width: '16rem', x: '-100%' }
 };
 
 // Animation variants for text visibility
@@ -60,29 +61,103 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
   const links = sections[role] || sections.user;
   // Start with true for server rendering to avoid hydration mismatch
   const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
   const [isLoggingOut, startLogoutTransition] = useTransition();
+
+  // Track if sidebar was manually toggled
+  const [wasManuallyToggled, setWasManuallyToggled] = useState(false);
 
   useEffect(() => {
     const checkWidth = () => {
       const mobile = isMobileWidth();
-      setIsCollapsed(current => (mobile ? true : current));
+      setIsMobile(mobile);
+
+      // Only auto-hide if not manually toggled
+      if (!wasManuallyToggled) {
+        // On mobile, we want to hide the sidebar completely when collapsed
+        if (mobile && isCollapsed) {
+          setIsHidden(true);
+        } else {
+          setIsHidden(false);
+        }
+
+        // Keep sidebar collapsed on mobile
+        setIsCollapsed(current => (mobile ? true : current));
+      }
     };
+
     window.addEventListener('resize', checkWidth);
     checkWidth();
     return () => window.removeEventListener('resize', checkWidth);
-  }, []);
+  }, [isCollapsed, wasManuallyToggled]);
+
+  // Listen for sidebar toggle events from the hamburger menu
+  useEffect(() => {
+    const handleSidebarToggleEvent = (event: CustomEvent<{ isOpen: boolean }>) => {
+      if (isMobile) {
+        console.log('Sidebar received toggle event:', event.detail);
+
+        // Mark as manually toggled to prevent auto-collapse
+        setWasManuallyToggled(true);
+
+        // If isOpen is true, we want to show the sidebar
+        if (event.detail.isOpen) {
+          setIsHidden(false);
+          setIsCollapsed(false);
+        } else {
+          // If isOpen is false, we want to hide the sidebar
+          setIsHidden(true);
+          setIsCollapsed(true);
+        }
+      }
+    };
+
+    window.addEventListener('toggleSidebar', handleSidebarToggleEvent as EventListener);
+    return () => {
+      window.removeEventListener('toggleSidebar', handleSidebarToggleEvent as EventListener);
+    };
+  }, [isMobile]);
 
   // Handle sidebar collapse toggle and dispatch custom event
   const handleSidebarToggle = () => {
     const newState = !isCollapsed;
     setIsCollapsed(newState);
 
+    // Mark as manually toggled
+    setWasManuallyToggled(true);
+
+    // On mobile, hide the sidebar when collapsed
+    if (isMobile && newState) {
+      setIsHidden(true);
+    } else {
+      setIsHidden(false);
+    }
+
     // Dispatch custom event for other components to listen to
     if (typeof window !== 'undefined') {
       const event = new CustomEvent('sidebarStateChange', {
-        detail: { isCollapsed: newState }
+        detail: { isCollapsed: newState, isHidden: isMobile && newState }
       });
       window.dispatchEvent(event);
+    }
+  };
+
+  // Close sidebar when clicking a link on mobile
+  const handleLinkClick = () => {
+    if (isMobile) {
+      setIsHidden(true);
+      setIsCollapsed(true);
+      // Reset manual toggle flag
+      setWasManuallyToggled(false);
+
+      // Dispatch event to update other components
+      if (typeof window !== 'undefined') {
+        const event = new CustomEvent('sidebarStateChange', {
+          detail: { isCollapsed: true, isHidden: true }
+        });
+        window.dispatchEvent(event);
+      }
     }
   };
 
@@ -126,17 +201,30 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
   };
 
   return (
-    <motion.aside
-      variants={sidebarVariants}
-      initial={false}
-      animate={isCollapsed ? 'collapsed' : 'open'}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className={clsx(
-        "fixed top-0 left-0 h-screen flex flex-col shadow-xl z-30",
-        "bg-sidebar/80 dark:bg-sidebar/80 backdrop-blur-lg border-r border-white/10 text-sidebar-foreground",
-        "touch-manipulation" // Improve touch handling
+    <>
+      {/* Overlay for mobile when sidebar is open */}
+      {isMobile && !isHidden && !isCollapsed && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={handleLinkClick} // Close sidebar when clicking overlay
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30"
+        />
       )}
-    >
+
+      <motion.aside
+        variants={sidebarVariants}
+        initial={false}
+        animate={isHidden ? 'hidden' : (isCollapsed ? 'collapsed' : 'open')}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className={clsx(
+          "fixed top-0 left-0 h-screen flex flex-col shadow-xl z-40",
+          "bg-sidebar/80 dark:bg-sidebar/80 backdrop-blur-lg border-r border-white/10 text-sidebar-foreground",
+          "touch-manipulation", // Improve touch handling
+          isMobile && !isHidden && "w-[16rem]" // Force width on mobile when visible
+        )}
+      >
        {/* Header Section - Logo and Title */}
        <div className={clsx(
           "flex items-center gap-3 px-6 py-5 font-bold text-xl tracking-wide text-foreground overflow-hidden",
@@ -197,6 +285,7 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
           <Link
             key={href}
             href={href}
+            onClick={handleLinkClick}
             title={isCollapsed ? label : undefined}
             className={clsx(
               'flex items-center gap-3 py-3 rounded-lg transition-all duration-200 ease-in-out',
@@ -255,5 +344,6 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
         </button>
       </div>
     </motion.aside>
+    </>
   );
 }

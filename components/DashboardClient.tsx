@@ -92,6 +92,21 @@ const ClientOnlyOvertimeTime = dynamic(() =>
   )),
   { ssr: false }
 );
+
+// Client-only component for progress bars
+const ClientOnlyProgressBar = dynamic(() =>
+  Promise.resolve(({ percentage, colorClass }: { percentage: number, colorClass: string }) => {
+    // Fix the percentage to 2 decimal places
+    const fixedPercentage = percentage.toFixed(2);
+    return (
+      <div
+        className={`h-full rounded-full transition-all duration-500 ease-out ${colorClass}`}
+        style={{ width: `${fixedPercentage}%` }}
+      />
+    );
+  }),
+  { ssr: false }
+);
 import {
   AlertDialog,
   AlertDialogAction,
@@ -710,8 +725,8 @@ export default function DashboardClient({
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
         transition={{delay:0.1, type: "spring", stiffness: 100}}
-        whileHover={{ scale: 1.02, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
-        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col gap-3 text-foreground transition-all duration-300"
+        whileHover={{ scale: 1.02 }}
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 flex flex-col gap-3 text-foreground transition-all duration-300 hover:shadow-xl"
       >
         <div className="w-full flex justify-between items-center mb-3">
           <div className="font-semibold text-lg text-foreground">Statistics</div>
@@ -730,10 +745,10 @@ export default function DashboardClient({
               </span>
             </div>
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Today')}`}
-                style={{ width: `${(Math.min(finalTodayHrsDecimal / 8 * 100, 100)).toFixed(2)}%` }}
-              ></div>
+              <ClientOnlyProgressBar
+                percentage={Math.min(finalTodayHrsDecimal / 8 * 100, 100)}
+                colorClass={getStatBarColor('Today')}
+              />
             </div>
           </div>
 
@@ -745,10 +760,10 @@ export default function DashboardClient({
               </span>
             </div>
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Week')}`}
-                style={{ width: `${(Math.min(weekHrsDecimal / 40 * 100, 100)).toFixed(2)}%` }}
-              ></div>
+              <ClientOnlyProgressBar
+                percentage={Math.min(weekHrsDecimal / 40 * 100, 100)}
+                colorClass={getStatBarColor('This Week')}
+              />
             </div>
           </div>
 
@@ -760,10 +775,10 @@ export default function DashboardClient({
               </span>
             </div>
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('This Month')}`}
-                style={{ width: `${(Math.min(monthHrsDecimal / 160 * 100, 100)).toFixed(2)}%` }}
-              ></div>
+              <ClientOnlyProgressBar
+                percentage={Math.min(monthHrsDecimal / 160 * 100, 100)}
+                colorClass={getStatBarColor('This Month')}
+              />
             </div>
           </div>
 
@@ -775,10 +790,10 @@ export default function DashboardClient({
               </span>
             </div>
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Remaining')}`}
-                style={{ width: `${(Math.min((Math.max(0, 8 - finalTodayHrsDecimal)) / 8 * 100, 100)).toFixed(2)}%` }}
-              ></div>
+              <ClientOnlyProgressBar
+                percentage={Math.min((Math.max(0, 8 - finalTodayHrsDecimal)) / 8 * 100, 100)}
+                colorClass={getStatBarColor('Remaining')}
+              />
             </div>
           </div>
 
@@ -790,10 +805,10 @@ export default function DashboardClient({
               </span>
             </div>
             <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${getStatBarColor('Overtime')}`}
-                style={{ width: `${(Math.min((Math.max(0, finalTodayHrsDecimal - 8)) / 8 * 100, 100)).toFixed(2)}%` }}
-              ></div>
+              <ClientOnlyProgressBar
+                percentage={Math.min((Math.max(0, finalTodayHrsDecimal - 8)) / 8 * 100, 100)}
+                colorClass={getStatBarColor('Overtime')}
+              />
             </div>
           </div>
         </div>
@@ -804,8 +819,8 @@ export default function DashboardClient({
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
         transition={{delay:0.15, type: "spring", stiffness: 100}}
-        whileHover={{ scale: 1.02, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
-        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300"
+        whileHover={{ scale: 1.02 }}
+        className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300 hover:shadow-xl"
       >
         <div className="w-full flex justify-between items-center mb-4">
           <div className="font-semibold text-lg text-foreground">Today Activity</div>
@@ -871,8 +886,8 @@ export default function DashboardClient({
         initial={{opacity:0, y:20}}
         animate={{opacity:1, y:0}}
         transition={{delay:0.2, type: "spring", stiffness: 100}}
-        whileHover={{ scale: 1.01, boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)" }}
-        className="col-span-1 md:col-span-2 xl:col-span-2 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300"
+        whileHover={{ scale: 1.01 }}
+        className="col-span-1 md:col-span-2 xl:col-span-2 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300 hover:shadow-xl"
       >
         <div className="w-full flex justify-between items-center mb-4">
           <div className="font-semibold text-lg text-foreground">Attendance Records</div>
@@ -981,11 +996,9 @@ export default function DashboardClient({
       <motion.div
          initial={{opacity:0, y:20}}
          animate={{opacity:1, y:0}}
-         transition={{delay:0.25}}
-         whileHover={{ scale: 1.02 }} // Add scale on hover
-         // Add glass effect classes, use bg-card, update text colors
-         // Responsive span (full width on small, half on medium, third on xl+)
-         className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-shadow hover:shadow-xl"
+         transition={{delay:0.25, type: "spring", stiffness: 100}}
+         whileHover={{ scale: 1.02 }}
+         className="md:col-span-1 xl:col-span-1 bg-card/80 dark:bg-card/80 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-4 sm:p-6 text-foreground transition-all duration-300 hover:shadow-xl"
       >
         <div className="font-semibold text-lg mb-4 text-foreground">Daily Records</div>
         <ResponsiveContainer width="100%" height={180}>
