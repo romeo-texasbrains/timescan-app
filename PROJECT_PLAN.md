@@ -207,15 +207,28 @@ This outlines the planned steps to build the application, updated based on recen
 40. ✅ **Enhance Manager Navigation:**
     * ✅ Added dedicated Manager Dashboard link in sidebar
     * ✅ Fixed Select component in adjustments page
-41. 🔧 **Fix Type Safety (`any` usage)**
-42. 🔧 **Review/Fix non-functional Topbar elements (Search, Notifications)**
-43. 🔧 **Update default App Title/Metadata**
+41. ✅ **Create Debugging Documentation:**
+    * ✅ Created comprehensive debugging guide (`docs/DEBUGGING_GUIDE.md`)
+    * ✅ Added Supabase RLS policy debugging instructions
+    * ✅ Documented common issues and solutions for different user roles
+42. ✅ **Fix Manager Dashboard Data Access:**
+    * ✅ Identified missing RLS policy for managers to access team's attendance logs
+    * ✅ Created SQL script to add proper RLS policies (`fix_attendance_logs_rls.sql`)
+    * ✅ Fixed overnight shift handling in manager dashboard
+43. ✅ **Add Manual Status Change Feature:**
+    * ✅ Created server action for managers/admins to manually change employee status
+    * ✅ Added UI component for status change with notes field
+    * ✅ Implemented in both admin and manager dashboards
+    * ✅ Added notes column to attendance_logs table
+44. 🔧 **Fix Type Safety (`any` usage)**
+45. 🔧 **Review/Fix non-functional Topbar elements (Search, Notifications)**
+46. 🔧 **Update default App Title/Metadata**
 
 **Phase 8: Testing & Deployment (Needs Implementation)**
 
-44. **Manual Testing:** Test all flows and roles
-45. **Deployment:** Configure and deploy to Vercel
-46. **Production Testing:** Final checks on live deployment
+47. **Manual Testing:** Test all flows and roles
+48. **Deployment:** Configure and deploy to Vercel
+49. **Production Testing:** Final checks on live deployment
 
 ## 9. Technical Notes & Gotchas
 
@@ -227,6 +240,34 @@ This outlines the planned steps to build the application, updated based on recen
         ALTER TYPE attendance_event_type ADD VALUE IF NOT EXISTS 'break_end';
         ```
     *   **Note:** After updating the enum, regenerate the TypeScript types using the Supabase CLI.
+
+*   **Supabase RLS Policy Debugging:**
+    *   **Issue:** Different user roles (admin, manager, employee) may experience inconsistent data access due to Row Level Security (RLS) policies.
+    *   **Symptoms:** Admin dashboard shows data but manager/employee dashboards don't; data appears in one view but not another.
+    *   **Debugging:** Check RLS policies using SQL queries:
+        ```sql
+        -- List policies on a table
+        SELECT policyname, permissive, cmd, qual, with_check
+        FROM pg_policies
+        WHERE tablename = 'table_name';
+        ```
+    *   **Common Fix:** Ensure proper policies exist for each role:
+        ```sql
+        -- Example: Allow managers to see team's attendance logs
+        CREATE POLICY manager_read_department_attendance_logs ON attendance_logs
+            FOR SELECT
+            TO authenticated
+            USING (
+                EXISTS (
+                    SELECT 1 FROM profiles manager
+                    JOIN profiles employee ON manager.department_id = employee.department_id
+                    WHERE manager.id = auth.uid()
+                    AND manager.role = 'manager'
+                    AND employee.id = attendance_logs.user_id
+                )
+            );
+        ```
+    *   **Reference:** See `docs/DEBUGGING_GUIDE.md` for comprehensive debugging steps.
 
 *   **Next.js 15 Dynamic API Changes (searchParams, cookies, headers):**
     *   **Issue:** In Next.js 15+, accessing properties of dynamic APIs like `searchParams` directly within Server Components (e.g., `page.tsx`) without first `await`-ing the API itself will cause warnings or errors (`searchParams should be awaited before using its properties`).

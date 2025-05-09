@@ -12,6 +12,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import { useLoading } from '@/context/LoadingContext';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import ChangeStatusDropdown from '@/components/ChangeStatusDropdown';
 
 // Type for employee status
 type EmployeeStatus = {
@@ -635,9 +636,17 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                       <td className="px-4 py-3 text-muted-foreground">{employee.lastActivity}</td>
                       <td className="px-4 py-3 text-muted-foreground">{employee.lastActivityTime}</td>
                       <td className="px-4 py-3">
-                        <Link href={`/mgmt/reports?employeeId=${employee.id}`}>
-                          <Button variant="ghost" size="sm">View History</Button>
-                        </Link>
+                        <div className="flex items-center space-x-2">
+                          <Link href={`/mgmt/reports?employeeId=${employee.id}`}>
+                            <Button variant="ghost" size="sm">View History</Button>
+                          </Link>
+                          <ChangeStatusDropdown
+                            employeeId={employee.id}
+                            employeeName={employee.name}
+                            currentStatus={employee.status}
+                            onStatusChanged={refreshDashboardData}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );

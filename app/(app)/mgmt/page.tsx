@@ -22,7 +22,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   // Get current date for reference
   const today = new Date()
   const todayStr = format(today, 'yyyy-MM-dd')
-  console.log(`Current date: ${todayStr} (not using for filtering)`)
+  // console.log(`Current date: ${todayStr} (not using for filtering)`)
 
   // --- Fetch Timezone Setting ---
   let timezone = 'UTC'; // Default timezone
@@ -158,17 +158,17 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   }
 
   // Log the number of team members found
-  console.log(`Found ${teamMembers.length} team members in department ${managerDeptProfile?.department_id}`);
+  // console.log(`Found ${teamMembers.length} team members in department ${managerDeptProfile?.department_id}`);
 
   // Log team member details for debugging
-  if (teamMembers.length > 0) {
-    console.log('Team members:');
-    teamMembers.forEach(member => {
-      if (member && member.profiles) {
-        console.log(`  ${member.profiles.id}: ${member.profiles.full_name} (${member.profiles.role})`);
-      }
-    });
-  }
+  // if (teamMembers.length > 0) {
+  //   console.log('Team members:');
+  //   teamMembers.forEach(member => {
+  //     if (member && member.profiles) {
+  //       console.log(`  ${member.profiles.id}: ${member.profiles.full_name} (${member.profiles.role})`);
+  //     }
+  //   });
+  // }
 
   // Extract profile data from the joined query, filtering out undefined profiles
   const employeeProfiles = teamMembers
@@ -218,8 +218,8 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   let todayLogs = [];
 
   // Get all logs for team members without date filtering
-  console.log("Fetching ALL logs for team members without date filtering");
-  console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
+  // console.log("Fetching ALL logs for team members without date filtering");
+  // console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
 
   // Then get all logs for these team members
   const { data: allLogs, error: logsError } = await supabase
@@ -236,15 +236,15 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   } else {
     todayLogs = allLogs || [];
     todayLogsCount = todayLogs.length;
-    console.log(`Fetched ${todayLogs.length} logs for team members`);
+    // console.log(`Fetched ${todayLogs.length} logs for team members`);
 
     // Log the first few logs for debugging
-    if (todayLogs.length > 0) {
-      console.log('Logs sample:');
-      todayLogs.slice(0, 5).forEach(log => {
-        console.log(`  ${log.user_id}: ${log.event_type} at ${log.timestamp}`);
-      });
-    }
+    // if (todayLogs.length > 0) {
+    //   console.log('Logs sample:');
+    //   todayLogs.slice(0, 5).forEach(log => {
+    //     console.log(`  ${log.user_id}: ${log.event_type} at ${log.timestamp}`);
+    //   });
+    // }
   }
 
   // Get recent activity logs (last 20 entries) for team members
@@ -252,8 +252,8 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
 
   // First try to get logs for team members only
   if (teamMemberIds.length > 0) {
-    console.log(`Fetching recent logs for ${teamMemberIds.length} team members`);
-    console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
+    // console.log(`Fetching recent logs for ${teamMemberIds.length} team members`);
+    // console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
 
     const { data: teamLogs, error: teamLogsError } = await supabase
       .from('attendance_logs')
@@ -266,15 +266,15 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
       console.error('Error fetching team recent logs:', teamLogsError);
     } else if (teamLogs && teamLogs.length > 0) {
       recentLogs = teamLogs;
-      console.log(`Fetched ${recentLogs.length} recent logs for team members`);
+      // console.log(`Fetched ${recentLogs.length} recent logs for team members`);
 
       // Log the first few logs for debugging
-      console.log('Recent team logs sample:');
-      recentLogs.slice(0, 3).forEach(log => {
-        console.log(`  ${log.user_id}: ${log.event_type} at ${log.timestamp}`);
-      });
+      // console.log('Recent team logs sample:');
+      // recentLogs.slice(0, 3).forEach(log => {
+      //   console.log(`  ${log.user_id}: ${log.event_type} at ${log.timestamp}`);
+      // });
     } else {
-      console.log('No team logs found, fetching all recent logs instead');
+      // console.log('No team logs found, fetching all recent logs instead');
 
       // If no team logs found, get all recent logs as a fallback
       const { data: allLogs, error: allLogsError } = await supabase
@@ -329,26 +329,26 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     const employeeBreakPeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
 
     // For debugging, log all team member IDs
-    console.log(`Team member IDs (${teamMemberIds.length}): ${teamMemberIds.join(', ')}`);
+    // console.log(`Team member IDs (${teamMemberIds.length}): ${teamMemberIds.join(', ')}`);
 
     // For debugging, log all unique user IDs in logs
     const uniqueLogUserIds = [...new Set(todayLogs.map(log => log.user_id))];
-    console.log(`Unique log user IDs (${uniqueLogUserIds.length}): ${uniqueLogUserIds.join(', ')}`);
+    // console.log(`Unique log user IDs (${uniqueLogUserIds.length}): ${uniqueLogUserIds.join(', ')}`);
 
     // Check for overlap between team member IDs and log user IDs
     const overlap = teamMemberIds.filter(id => uniqueLogUserIds.includes(id));
-    console.log(`Overlap between team members and logs (${overlap.length}): ${overlap.join(', ')}`);
+    // console.log(`Overlap between team members and logs (${overlap.length}): ${overlap.join(', ')}`);
 
     // Filter logs to only include team members
     const teamMemberLogsOnly = todayLogs.filter(log => {
       const isTeamMember = teamMemberIds.includes(log.user_id);
-      if (isTeamMember) {
-        console.log(`Including log for team member ${log.user_id}, event: ${log.event_type}, time: ${log.timestamp}`);
-      }
+      // if (isTeamMember) {
+      //   console.log(`Including log for team member ${log.user_id}, event: ${log.event_type}, time: ${log.timestamp}`);
+      // }
       return isTeamMember;
     });
 
-    console.log(`Filtered ${todayLogs.length} logs down to ${teamMemberLogsOnly.length} team member logs`);
+    // console.log(`Filtered ${todayLogs.length} logs down to ${teamMemberLogsOnly.length} team member logs`);
 
     // Process logs chronologically to calculate active and break times
     teamMemberLogsOnly.forEach(log => {
@@ -357,7 +357,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
       const userId = log.user_id;
 
       // For debugging, log all logs we're processing
-      console.log(`Processing log for ${userId}: ${log.event_type} at ${format(timestamp, 'yyyy-MM-dd HH:mm:ss')}`);
+      // console.log(`Processing log for ${userId}: ${log.event_type} at ${format(timestamp, 'yyyy-MM-dd HH:mm:ss')}`);
 
       // For overnight shifts, we don't filter by day
       // This ensures that shifts that cross midnight are properly calculated
@@ -481,10 +481,10 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
       // Skip if employee is undefined or doesn't have an id
       if (!employee || !employee.id) return;
 
-      console.log(`Processing employee: ${employee.full_name} (${employee.id})`);
+      // console.log(`Processing employee: ${employee.full_name} (${employee.id})`);
 
       const latestStatus = latestStatusMap.get(employee.id);
-      console.log(`  Latest status: ${latestStatus ? latestStatus.status : 'none'}`);
+      // console.log(`  Latest status: ${latestStatus ? latestStatus.status : 'none'}`);
 
       // Calculate active time, ensure it's not negative
       const totalActiveTime = employeeActivePeriods.has(employee.id)
@@ -496,10 +496,10 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
         ? Math.max(0, calculateTotalMinutes(employeeBreakPeriods.get(employee.id)!.periods))
         : 0;
 
-      console.log(`  Active time: ${totalActiveTime} minutes, Break time: ${totalBreakTime} minutes`);
+      // console.log(`  Active time: ${totalActiveTime} minutes, Break time: ${totalBreakTime} minutes`);
 
       if (latestStatus) {
-        console.log(`  Adding employee with status: ${latestStatus.status}`);
+        // console.log(`  Adding employee with status: ${latestStatus.status}`);
         employeeStatuses.push({
           id: employee.id,
           name: employee.full_name || 'Unnamed',
@@ -510,7 +510,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           totalBreakTime: Math.round(totalBreakTime)
         });
       } else {
-        console.log(`  Adding employee as signed out`);
+        // console.log(`  Adding employee as signed out`);
         employeeStatuses.push({
           id: employee.id,
           name: employee.full_name || 'Unnamed',
