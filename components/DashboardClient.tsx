@@ -234,14 +234,19 @@ const getStatBarColor = (label: string): string => {
 export default function DashboardClient({
   logs,
   userProfile,
-  departmentName
+  departmentName,
+  timezone: serverTimezone
 }: {
   logs: AttendanceLog[];
   userProfile: { full_name: string; role: string; department_id: string | null } | null;
   departmentName: string | null;
+  timezone: string;
 }) { // Use AttendanceLog type
   const router = useRouter(); // Get router instance
-  const { timezone } = useTimezone(); // Use the hook to get timezone
+  const { timezone: contextTimezone } = useTimezone(); // Use the hook to get timezone
+
+  // Use server-provided timezone as the source of truth, fallback to context
+  const timezone = serverTimezone || contextTimezone;
   // State for punch out action
   const [punchStatus, setPunchStatus] = useState<{ loading: boolean; message: string; error: boolean }>({ loading: false, message: '', error: false });
   // State for real-time clock
@@ -343,15 +348,12 @@ export default function DashboardClient({
       lastSignInLog = currentLog; // Update last sign in
       let foundPair = false;
 
-      // Look for the next signout on the same day
+      // Look for the next signout (allowing overnight shifts)
       for (let j = i + 1; j < sortedLogs.length; j++) {
         if (processedIndices.has(j)) continue; // Skip if already paired
 
         const nextLog = sortedLogs[j];
-        if (
-          nextLog.event_type === 'signout' &&
-          isSameDay(new Date(currentLog.timestamp || 0), new Date(nextLog.timestamp || 0))
-        ) {
+        if (nextLog.event_type === 'signout') {
           const duration = calculateDuration(currentLog, nextLog);
           const logDate = startOfDay(new Date(currentLog.timestamp || 0));
           const dateStr = dateStrToTimezone(logDate); // Use consistent date format
@@ -416,6 +418,12 @@ export default function DashboardClient({
      sortedLogs[sortedLogs.length - 1].event_type === 'signin' &&
      !isOnBreak);
 
+  // Add a useEffect to log the current sign-in state for debugging
+  useEffect(() => {
+    console.log('Current sign-in state:', isCurrentlySignedIn ? 'Signed In' : 'Signed Out');
+    console.log('Last log event type:', sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1].event_type : 'None');
+  }, [isCurrentlySignedIn, sortedLogs]);
+
   // Calculate current dynamic session duration if signed in
   let currentSessionDurationSecs = 0;
   if (isCurrentlySignedIn && lastSignInLog?.timestamp) {
@@ -464,12 +472,36 @@ export default function DashboardClient({
       if (!response.ok) {
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
-      setPunchStatus({ loading: false, message: data.message || 'Punch successful!', error: false });
-      // Refresh data after successful punch
-      router.refresh();
+      setPunchStatus({ loading: false, message: `${data.message || 'Punch successful!'} Page will refresh in a moment...`, error: false });
+
+      // Show success message for 1.5 seconds before refreshing
+      setTimeout(() => {
+        // Force a full page reload instead of just a router refresh
+        window.location.reload();
+      }, 1500);
     } catch (error: any) {
       console.error("Punch out error:", error);
-      setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not process punch.'}`, error: true });
+
+      // Check if the error is about not being signed in
+      const errorMessage = error.message || 'Could not process punch.';
+      const isSignInError = errorMessage.toLowerCase().includes('not currently signed in');
+
+      if (isSignInError) {
+        // If there's a mismatch between UI and server state, show a special message
+        setPunchStatus({
+          loading: false,
+          message: `Error: ${errorMessage} The page will refresh to update your status.`,
+          error: true
+        });
+
+        // Force a page reload after 2 seconds to sync the UI with the server
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        // For other errors, just show the error message
+        setPunchStatus({ loading: false, message: `Error: ${errorMessage}`, error: true });
+      }
     }
   };
 
@@ -489,9 +521,13 @@ export default function DashboardClient({
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
 
-      setPunchStatus({ loading: false, message: data.message || 'Break started!', error: false });
-      // Refresh data after successful break start
-      router.refresh();
+      setPunchStatus({ loading: false, message: `${data.message || 'Break started!'} Page will refresh in a moment...`, error: false });
+
+      // Show success message for 1.5 seconds before refreshing
+      setTimeout(() => {
+        // Force a full page reload instead of just a router refresh
+        window.location.reload();
+      }, 1500);
     } catch (error: any) {
       console.error("Break start error:", error);
 
@@ -522,9 +558,13 @@ export default function DashboardClient({
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
 
-      setPunchStatus({ loading: false, message: data.message || 'Break ended!', error: false });
-      // Refresh data after successful break end
-      router.refresh();
+      setPunchStatus({ loading: false, message: `${data.message || 'Break ended!'} Page will refresh in a moment...`, error: false });
+
+      // Show success message for 1.5 seconds before refreshing
+      setTimeout(() => {
+        // Force a full page reload instead of just a router refresh
+        window.location.reload();
+      }, 1500);
     } catch (error: any) {
       console.error("Break end error:", error);
       setPunchStatus({ loading: false, message: `Error: ${error.message || 'Could not end break.'}`, error: true });
