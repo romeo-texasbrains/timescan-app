@@ -121,9 +121,9 @@ export async function addEmployee(formData: unknown): Promise<ActionResult> {
 
         // User created successfully in auth.users.
         // The trigger `handle_new_user` should have created the profile.
-        // Optional: Update profile role immediately if trigger doesn't use metadata
-        // This requires the `id` from `newUser.user.id`
+        // Update profile role and ensure user_roles entry exists
         if (newUser?.user) {
+            // 1. Update the profile with the role
             const { error: updateProfileError } = await supabaseAdmin
                 .from('profiles')
                 .update({ role: role }) // Explicitly set role from form
@@ -131,7 +131,66 @@ export async function addEmployee(formData: unknown): Promise<ActionResult> {
 
             if (updateProfileError) {
                 console.warn(`User ${email} created, but failed to update role in profile: ${updateProfileError.message}`);
-                // Decide if this is critical - maybe return success with warning?
+            }
+
+            // 2. Check if user_roles table exists and create entry
+            try {
+                // First check if the user already has an entry in user_roles
+                const { data: existingUserRole, error: checkError } = await supabaseAdmin
+                    .from('user_roles')
+                    .select('user_id')
+                    .eq('user_id', newUser.user.id)
+                    .maybeSingle();
+
+                if (checkError) {
+                    console.warn(`Error checking user_roles for ${email}: ${checkError.message}`);
+                }
+
+                // If no entry exists, create one
+                if (!existingUserRole) {
+                    // Get department_id from profile
+                    const { data: profileData, error: profileFetchError } = await supabaseAdmin
+                        .from('profiles')
+                        .select('department_id')
+                        .eq('id', newUser.user.id)
+                        .single();
+
+                    if (profileFetchError) {
+                        console.warn(`Error fetching profile for ${email}: ${profileFetchError.message}`);
+                    }
+
+                    // Insert into user_roles
+                    const { error: insertError } = await supabaseAdmin
+                        .from('user_roles')
+                        .insert({
+                            user_id: newUser.user.id,
+                            role: role,
+                            department_id: profileData?.department_id || null
+                        });
+
+                    if (insertError) {
+                        console.warn(`Error creating user_roles entry for ${email}: ${insertError.message}`);
+                    } else {
+                        console.log(`Successfully created user_roles entry for ${email}`);
+                    }
+                } else {
+                    // Update existing user_role
+                    const { error: updateError } = await supabaseAdmin
+                        .from('user_roles')
+                        .update({
+                            role: role,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('user_id', newUser.user.id);
+
+                    if (updateError) {
+                        console.warn(`Error updating user_roles for ${email}: ${updateError.message}`);
+                    } else {
+                        console.log(`Successfully updated user_roles for ${email}`);
+                    }
+                }
+            } catch (error) {
+                console.warn(`Unexpected error handling user_roles for ${email}:`, error);
             }
         } else {
              console.warn(`User ${email} created, but newUser object was not returned as expected.`);

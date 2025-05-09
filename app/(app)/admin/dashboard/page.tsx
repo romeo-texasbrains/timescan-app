@@ -84,7 +84,7 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
     .select('id, user_id, event_type, timestamp')
     .gte('timestamp', `${todayStr}T00:00:00`)
     .lte('timestamp', `${todayStr}T23:59:59`)
-    .order('timestamp', { ascending: true }) // Changed to ascending for time calculations
+    .order('timestamp', { ascending: true }); // Changed to ascending for time calculations
 
   if (todayLogsError) {
     console.error('Error fetching today logs:', todayLogsError);

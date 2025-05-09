@@ -47,6 +47,56 @@ async function updateProfile(formData: FormData) {
     return // Stop execution after redirect
   }
 
+  // Also update the user_roles table to keep it in sync
+  try {
+    // First check if the user already has an entry in user_roles
+    const { data: existingUserRole, error: checkError } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('user_id', profileId)
+      .maybeSingle();
+
+    if (checkError) {
+      console.warn(`Error checking user_roles for profile ${profileId}: ${checkError.message}`);
+    }
+
+    // If no entry exists, create one
+    if (!existingUserRole) {
+      // Insert into user_roles
+      const { error: insertError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: profileId,
+          role: role,
+          department_id: departmentId === 'null' ? null : departmentId
+        });
+
+      if (insertError) {
+        console.warn(`Error creating user_roles entry for profile ${profileId}: ${insertError.message}`);
+      } else {
+        console.log(`Successfully created user_roles entry for profile ${profileId}`);
+      }
+    } else {
+      // Update existing user_role
+      const { error: updateError } = await supabase
+        .from('user_roles')
+        .update({
+          role: role,
+          department_id: departmentId === 'null' ? null : departmentId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', profileId);
+
+      if (updateError) {
+        console.warn(`Error updating user_roles for profile ${profileId}: ${updateError.message}`);
+      } else {
+        console.log(`Successfully updated user_roles for profile ${profileId}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`Unexpected error handling user_roles for profile ${profileId}:`, error);
+  }
+
   // Redirect back to the employees list after successful update with a success message
   redirect('/admin/employees?message=Profile updated successfully.')
 }
