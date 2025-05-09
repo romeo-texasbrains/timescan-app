@@ -40,7 +40,7 @@ function TopbarServer({ userEmail, timezone, isSidebarCollapsed = false }: Topba
       </div>
 
       {/* Right side: Time Display, Notifications and User */}
-      <div className="flex items-center gap-2 sm:gap-6">
+      <div className="flex items-center gap-2 sm:gap-4">
         {/* Time Display - Placed before notifications/user */}
         <TimeDisplay timezone={timezone} />
 
@@ -150,7 +150,7 @@ function TopbarClient({ userEmail, timezone, isSidebarCollapsed: initialCollapse
       </div>
 
       {/* Right side: Time Display, Notifications and User */}
-      <div className="flex items-center gap-2 sm:gap-6">
+      <div className="flex items-center gap-2 sm:gap-4">
         {/* Time Display - Placed before notifications/user */}
         <TimeDisplay timezone={timezone} />
 

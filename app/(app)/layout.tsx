@@ -7,6 +7,7 @@ import { Toaster } from 'sonner' // Correct import path for sonner
 import { TimezoneProvider } from '@/context/TimezoneContext' // Import the Provider
 import MainContentWrapper from '@/components/MainContentWrapper' // Import the new component
 import LoadingProvider from '@/context/LoadingContext' // Import the Loading Provider
+import ClientErrorHandler from '@/components/ClientErrorHandler' // Import the client error handler wrapper
 
 // Define role type here as well
 type UserRole = 'user' | 'manager' | 'admin';
@@ -91,6 +92,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <LoadingProvider>
       <div className="min-h-screen bg-background flex">
+        {/* Client-side error handler to catch unhandled errors */}
+        <ClientErrorHandler />
+
         {/* Sidebar now needs user info passed as props */}
         <Sidebar
           role={userRole}

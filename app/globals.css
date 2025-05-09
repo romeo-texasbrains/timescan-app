@@ -56,6 +56,7 @@ body {
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --color-primary-rgb: 0, 0, 0; /* RGB values for primary color animations */
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -90,6 +91,7 @@ body {
   --popover-foreground: oklch(0.95 0.01 260);
   --primary: oklch(0.6 0.15 265);
   --primary-foreground: oklch(0.98 0.01 260);
+  --color-primary-rgb: 149, 132, 255; /* RGB values for primary color animations in dark mode */
   --secondary: oklch(0.25 0.05 260);
   --secondary-foreground: oklch(0.95 0.01 260);
   --muted: oklch(0.25 0.05 260);
@@ -142,6 +144,40 @@ body {
 
 .animate-scan {
   animation: scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* QR Scanner animations */
+@keyframes qr-scanner-target {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb, 0, 0, 0), 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(var(--color-primary-rgb, 0, 0, 0), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--color-primary-rgb, 0, 0, 0), 0);
+  }
+}
+
+.animate-qr-target {
+  animation: qr-scanner-target 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Scanner line animation */
+@keyframes qr-scanner-line {
+  0% {
+    transform: translateY(0%);
+  }
+  50% {
+    transform: translateY(calc(100% - 2px));
+  }
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+.animate-scanner-line {
+  animation: qr-scanner-line 3s ease-in-out infinite;
 }
 
 /* Mobile-specific styles */

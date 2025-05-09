@@ -22,16 +22,40 @@ interface TimezoneProviderProps {
 
 // This Provider is intended to wrap client components *within* the server layout
 // It gets the initial value from the server layout props
+// Helper function to validate a timezone (defined outside component to be reusable)
+const isValidTimezone = (tz: string): boolean => {
+  if (!tz || typeof tz !== 'string') return false;
+
+  try {
+    // Try to create a formatter with the timezone to check if it's valid
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch (e) {
+    console.warn(`Invalid timezone: ${tz}`, e);
+    return false;
+  }
+};
+
 export const TimezoneProvider = ({ initialTimezone, children }: TimezoneProviderProps) => {
+  // Validate the initial timezone before using it
+  const validInitialTimezone = isValidTimezone(initialTimezone) ? initialTimezone : 'UTC';
+
   // Although we get the initial value from server props, useState is needed
   // if we ever want to allow client-side updates or reactions to changes.
   // For now, it mainly holds the server-provided value.
-  const [timezone, setTimezoneState] = useState<string>(initialTimezone || 'UTC');
+  const [timezone, setTimezoneState] = useState<string>(validInitialTimezone);
 
-  // Wrapper function in case we add validation or side effects later
+  // We're using the isValidTimezone function defined above
+
+  // Wrapper function with validation
   const setTimezone = (newTimezone: string) => {
-    setTimezoneState(newTimezone);
-    // Potentially save to localStorage or trigger other updates if needed
+    // Validate the timezone before setting it
+    if (isValidTimezone(newTimezone)) {
+      setTimezoneState(newTimezone);
+    } else {
+      console.warn(`Attempted to set invalid timezone: ${newTimezone}, falling back to UTC`);
+      setTimezoneState('UTC');
+    }
   };
 
   return (
@@ -42,4 +66,4 @@ export const TimezoneProvider = ({ initialTimezone, children }: TimezoneProvider
 };
 
 // Custom hook for easy consumption
-export const useTimezone = () => useContext(TimezoneContext); 
+export const useTimezone = () => useContext(TimezoneContext);
