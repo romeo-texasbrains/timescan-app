@@ -186,12 +186,14 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
         }
       }
 
-      // Fetch all logs for team members for processing employee statuses
-      // Don't filter by date to ensure we get the most recent status for each employee
+      // Fetch today's logs for team members for processing employee statuses
+      // Use the same todayStr variable that was declared above
       const { data: todayLogs } = await supabase
         .from('attendance_logs')
         .select('id, user_id, event_type, timestamp')
         .in('user_id', teamMemberIds)
+        .gte('timestamp', `${todayStr}T00:00:00`)
+        .lte('timestamp', `${todayStr}T23:59:59`)
         .order('timestamp', { ascending: true });
 
       if (todayLogs && employeesInDepartmentState.length > 0) {
@@ -211,7 +213,9 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
 
         // Process logs chronologically
         teamMemberLogsOnly.forEach(log => {
-          const timestamp = new Date(log.timestamp);
+          const timestamp = parseISO(log.timestamp);
+          // Convert to the admin-set timezone for consistent calculations
+          const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezoneState, 'yyyy-MM-dd HH:mm:ss'));
           const userId = log.user_id;
 
           // For overnight shifts, we don't filter by day
@@ -227,9 +231,9 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
 
             // Start tracking active time - handle overnight shifts
             if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
+              employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
             } else if (!employeeActivePeriods.get(userId)!.start) {
-              employeeActivePeriods.get(userId)!.start = timestamp;
+              employeeActivePeriods.get(userId)!.start = timestampInTimezone;
             }
           }
           else if (log.event_type === 'signout') {
@@ -241,7 +245,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               const activePeriod = employeeActivePeriods.get(userId)!;
               activePeriod.periods.push({
                 start: activePeriod.start,
-                end: timestamp
+                end: timestampInTimezone
               });
               activePeriod.start = null as unknown as Date; // Clear start time
             }
@@ -251,7 +255,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               const breakPeriod = employeeBreakPeriods.get(userId)!;
               breakPeriod.periods.push({
                 start: breakPeriod.start,
-                end: timestamp
+                end: timestampInTimezone
               });
               breakPeriod.start = null as unknown as Date; // Clear start time
             }
@@ -266,16 +270,16 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               const activePeriod = employeeActivePeriods.get(userId)!;
               activePeriod.periods.push({
                 start: activePeriod.start,
-                end: timestamp
+                end: timestampInTimezone
               });
               activePeriod.start = null as unknown as Date; // Clear start time
             }
 
             // Start break period
             if (!employeeBreakPeriods.has(userId)) {
-              employeeBreakPeriods.set(userId, { start: timestamp, periods: [] });
+              employeeBreakPeriods.set(userId, { start: timestampInTimezone, periods: [] });
             } else {
-              employeeBreakPeriods.get(userId)!.start = timestamp;
+              employeeBreakPeriods.get(userId)!.start = timestampInTimezone;
             }
           }
           else if (log.event_type === 'break_end') {
@@ -288,38 +292,40 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               const breakPeriod = employeeBreakPeriods.get(userId)!;
               breakPeriod.periods.push({
                 start: breakPeriod.start,
-                end: timestamp
+                end: timestampInTimezone
               });
               breakPeriod.start = null as unknown as Date; // Clear start time
             }
 
             // Start active period
             if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
+              employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
             } else {
-              employeeActivePeriods.get(userId)!.start = timestamp;
+              employeeActivePeriods.get(userId)!.start = timestampInTimezone;
             }
           }
 
           // Update latest status
           if (!latestStatusMap.has(userId) ||
-              new Date(latestStatusMap.get(userId)!.timestamp) < timestamp) {
+              new Date(formatInTimeZone(parseISO(latestStatusMap.get(userId)!.timestamp), timezoneState, 'yyyy-MM-dd HH:mm:ss')) < timestampInTimezone) {
             latestStatusMap.set(userId, { status, timestamp: log.timestamp });
           }
         });
 
         // Close any open periods with current time for employees still active
         const now = new Date();
+        // Convert current time to the admin-set timezone for consistent calculations
+        const nowInTimezone = new Date(formatInTimeZone(now, timezoneState, 'yyyy-MM-dd HH:mm:ss'));
 
         employeeActivePeriods.forEach((data, userId) => {
           if (data.start) {
-            data.periods.push({ start: data.start, end: now });
+            data.periods.push({ start: data.start, end: nowInTimezone });
           }
         });
 
         employeeBreakPeriods.forEach((data, userId) => {
           if (data.start) {
-            data.periods.push({ start: data.start, end: now });
+            data.periods.push({ start: data.start, end: nowInTimezone });
           }
         });
 
@@ -414,6 +420,18 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
       case 'signed_out': return 'Signed Out';
       case 'on_break': return 'On Break';
     }
+  }
+
+  // Helper function to format minutes into hours and minutes
+  function formatMinutes(minutes: number | undefined): string {
+    if (!minutes) return '0m';
+
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+
+    if (hours === 0) return `${mins}m`;
+    if (mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
   }
 
   if (!isClient) {
@@ -609,15 +627,6 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                         : departmentMap.get(employeeData.department_id)) || 'Unknown'
                     : 'None';
 
-                  // Format active and break times
-                  const formatTime = (minutes: number | undefined) => {
-                    if (!minutes) return '0m';
-                    if (minutes < 60) return `${minutes}m`;
-                    const hours = Math.floor(minutes / 60);
-                    const mins = minutes % 60;
-                    return `${hours}h ${mins}m`;
-                  };
-
                   return (
                     <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
                       <td className="px-4 py-3 font-medium">{employee.name}</td>
@@ -631,8 +640,16 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                            employee.status === 'on_break' ? 'On Break' : 'Inactive'}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatTime(employee.totalActiveTime)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatTime(employee.totalBreakTime)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
+                          {formatMinutes(employee.totalActiveTime)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
+                          {formatMinutes(employee.totalBreakTime)}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{employee.lastActivity}</td>
                       <td className="px-4 py-3 text-muted-foreground">{employee.lastActivityTime}</td>
                       <td className="px-4 py-3">
@@ -735,10 +752,11 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                           eventType = log.event_type;
                       }
 
-                      // Format timestamp
+                      // Format timestamp with timezone handling
                       const timestamp = parseISO(log.timestamp);
-                      const dateStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'MMM d, yyyy');
-                      const timeStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'h:mm a');
+                      const currentTimezone = isRealTimeEnabled ? timezoneState : timezone;
+                      const dateStr = formatInTimeZone(timestamp, currentTimezone, 'MMM d, yyyy');
+                      const timeStr = formatInTimeZone(timestamp, currentTimezone, 'h:mm a');
 
                       return (
                         <tr key={log.id} className="border-t border-border hover:bg-muted/20">

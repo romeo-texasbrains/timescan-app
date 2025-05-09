@@ -217,17 +217,18 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   // Get all attendance logs for team members
   let todayLogs = [];
 
-  // Get all logs for team members without date filtering
-  // console.log("Fetching ALL logs for team members without date filtering");
+  // Get today's logs for team members
+  // console.log("Fetching today's logs for team members");
   // console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
 
-  // Then get all logs for these team members
+  // Then get today's logs for these team members
   const { data: allLogs, error: logsError } = await supabase
     .from('attendance_logs')
     .select('id, user_id, event_type, timestamp')
     .in('user_id', teamMemberIds)
-    .order('timestamp', { ascending: false })
-    .limit(500);  // Get more logs to ensure we have the latest for each employee
+    .gte('timestamp', `${todayStr}T00:00:00`)
+    .lte('timestamp', `${todayStr}T23:59:59`)
+    .order('timestamp', { ascending: true });  // Changed to ascending for time calculations
 
   // Set todayLogsCount to the total number of logs
   if (logsError) {
@@ -354,6 +355,8 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     teamMemberLogsOnly.forEach(log => {
       // Parse timestamp with timezone handling
       const timestamp = parseISO(log.timestamp);
+      // Convert to the admin-set timezone for consistent calculations
+      const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
       const userId = log.user_id;
 
       // For debugging, log all logs we're processing
@@ -372,9 +375,9 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
 
         // Start tracking active time - handle overnight shifts
         if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
+          employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
         } else if (!employeeActivePeriods.get(userId)!.start) {
-          employeeActivePeriods.get(userId)!.start = timestamp;
+          employeeActivePeriods.get(userId)!.start = timestampInTimezone;
         }
       }
       else if (log.event_type === 'signout') {
@@ -386,7 +389,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           const activePeriod = employeeActivePeriods.get(userId)!;
           activePeriod.periods.push({
             start: activePeriod.start,
-            end: timestamp
+            end: timestampInTimezone
           });
           activePeriod.start = null as unknown as Date; // Clear start time
         }
@@ -396,7 +399,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           const breakPeriod = employeeBreakPeriods.get(userId)!;
           breakPeriod.periods.push({
             start: breakPeriod.start,
-            end: timestamp
+            end: timestampInTimezone
           });
           breakPeriod.start = null as unknown as Date; // Clear start time
         }
@@ -411,16 +414,16 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           const activePeriod = employeeActivePeriods.get(userId)!;
           activePeriod.periods.push({
             start: activePeriod.start,
-            end: timestamp
+            end: timestampInTimezone
           });
           activePeriod.start = null as unknown as Date; // Clear start time
         }
 
         // Start break period
         if (!employeeBreakPeriods.has(userId)) {
-          employeeBreakPeriods.set(userId, { start: timestamp, periods: [] });
+          employeeBreakPeriods.set(userId, { start: timestampInTimezone, periods: [] });
         } else {
-          employeeBreakPeriods.get(userId)!.start = timestamp;
+          employeeBreakPeriods.get(userId)!.start = timestampInTimezone;
         }
       }
       else if (log.event_type === 'break_end') {
@@ -433,38 +436,40 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           const breakPeriod = employeeBreakPeriods.get(userId)!;
           breakPeriod.periods.push({
             start: breakPeriod.start,
-            end: timestamp
+            end: timestampInTimezone
           });
           breakPeriod.start = null as unknown as Date; // Clear start time
         }
 
         // Start active period
         if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
+          employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
         } else {
-          employeeActivePeriods.get(userId)!.start = timestamp;
+          employeeActivePeriods.get(userId)!.start = timestampInTimezone;
         }
       }
 
       // Update latest status
       if (!latestStatusMap.has(userId) ||
-          new Date(latestStatusMap.get(userId)!.timestamp) < timestamp) {
+          new Date(formatInTimeZone(parseISO(latestStatusMap.get(userId)!.timestamp), timezone, 'yyyy-MM-dd HH:mm:ss')) < timestampInTimezone) {
         latestStatusMap.set(userId, { status, timestamp: log.timestamp });
       }
     });
 
     // Close any open periods with current time for employees still active
     const now = new Date();
+    // Convert current time to the admin-set timezone for consistent calculations
+    const nowInTimezone = new Date(formatInTimeZone(now, timezone, 'yyyy-MM-dd HH:mm:ss'));
 
     employeeActivePeriods.forEach((data, userId) => {
       if (data.start) {
-        data.periods.push({ start: data.start, end: now });
+        data.periods.push({ start: data.start, end: nowInTimezone });
       }
     });
 
     employeeBreakPeriods.forEach((data, userId) => {
       if (data.start) {
-        data.periods.push({ start: data.start, end: now });
+        data.periods.push({ start: data.start, end: nowInTimezone });
       }
     });
 
