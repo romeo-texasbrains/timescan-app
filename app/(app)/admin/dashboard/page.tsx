@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { Suspense } from 'react'
 import ClientWrapper from './ClientWrapper'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 
 // Type for employee status
 type EmployeeStatus = {
@@ -22,6 +23,26 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
   // Get today's date in ISO format for filtering
   const today = new Date()
   const todayStr = format(today, 'yyyy-MM-dd')
+
+  // --- Fetch Timezone Setting ---
+  let timezone = 'UTC'; // Default timezone
+  try {
+    const { data: settings, error: tzError } = await supabase
+      .from('app_settings')
+      .select('timezone')
+      .eq('id', 1)
+      .single();
+
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting:", tzError);
+      }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+    }
+  } catch (error) {
+    console.error("Error fetching timezone setting:", error);
+  }
 
   // Get all departments
   const { data: departments, error: departmentsError } = await supabase
@@ -227,7 +248,7 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
           name: employee.full_name || 'Unnamed',
           status: latestStatus.status,
           lastActivity: getActivityLabel(latestStatus.status),
-          lastActivityTime: format(new Date(latestStatus.timestamp), 'h:mm a'),
+          lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezone, 'h:mm a'),
           department_id: employee.department_id || 'unassigned',
           totalActiveTime: Math.round(totalActiveTime),
           totalBreakTime: Math.round(totalBreakTime)
@@ -303,7 +324,8 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
     todayLogsCount,
     departmentMap: departmentMapObj,
     recentLogs,
-    today
+    today,
+    timezone
   };
 }
 

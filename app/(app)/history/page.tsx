@@ -1,14 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { Database } from '@/lib/supabase/database.types'
-import { format } from 'date-fns'; // Using date-fns for formatting
+import { format, parseISO } from 'date-fns'; // Using date-fns for formatting
+import { formatInTimeZone } from 'date-fns-tz'; // For timezone-aware formatting
 import Link from 'next/link'; // Import Link for pagination
 
-// Re-add Helper function to format timestamp
-function formatTimestamp(timestamp: string | null): string {
+// Helper function to format timestamp with timezone
+function formatTimestamp(timestamp: string | null, timezone: string): string {
   if (!timestamp) return 'N/A';
   try {
-    // Using a simpler format
-    return format(new Date(timestamp), "PP p");
+    // Using timezone-aware formatting
+    return formatInTimeZone(parseISO(timestamp), timezone, "PP p");
   } catch (e) {
     console.error("Error formatting date:", e);
     return timestamp;
@@ -56,7 +57,27 @@ export default async function HistoryPage({ searchParams }: { searchParams?: { [
     return <p className="text-red-600">Error: Could not authenticate user.</p>;
   }
 
-  // --- Await searchParams as per Next.js 15 docs --- 
+  // --- Fetch Timezone Setting ---
+  let timezone = 'UTC'; // Default timezone
+  try {
+    const { data: settings, error: tzError } = await supabase
+      .from('app_settings')
+      .select('timezone')
+      .eq('id', 1)
+      .single();
+
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting:", tzError);
+      }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+    }
+  } catch (error) {
+    console.error("Error fetching timezone setting:", error);
+  }
+
+  // --- Await searchParams as per Next.js 15 docs ---
   const awaitedSearchParams = await searchParams;
   const pageParam = awaitedSearchParams?.page; // Access page *after* awaiting
   // --------------------------------------------------
@@ -85,10 +106,11 @@ export default async function HistoryPage({ searchParams }: { searchParams?: { [
     return <p className="text-red-600">{fetchError.message}</p>;
   }
 
-  // --- Render the component --- 
+  // --- Render the component ---
   return (
     <div className="container mx-auto px-4 py-6">
-      <h1 className="text-3xl font-bold mb-6">Your Attendance History</h1>
+      <h1 className="text-3xl font-bold mb-2">Your Attendance History</h1>
+      <p className="text-sm text-muted-foreground mb-6">All times shown in {timezone.replace(/_/g, ' ')} timezone</p>
 
       {logs && logs.length > 0 ? (
         <>
@@ -108,7 +130,7 @@ export default async function HistoryPage({ searchParams }: { searchParams?: { [
                 {logs.map((log) => (
                   <tr key={log.id}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {formatTimestamp(log.timestamp)}
+                      {formatTimestamp(log.timestamp, timezone)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${log.event_type === 'signin' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>

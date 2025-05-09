@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Database } from '@/lib/supabase/database.types'
 import { format, startOfDay, isSameDay, parseISO } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 
 // Type for processed, aggregated report row
 type ReportRow = {
@@ -49,75 +50,146 @@ function calculateDuration(startIso: string, endIso: string): number {
 }
 
 // Helper function to aggregate logs into report rows
-function aggregateLogs(logs: FetchedLog[]): ReportRow[] {
+function aggregateLogs(logs: FetchedLog[], timezone: string): ReportRow[] {
   if (!logs || logs.length === 0) return [];
 
   const reportMap = new Map<string, ReportRow>(); // Key: employeeId-date
 
-  // Sort logs primarily by user, then by timestamp ASCENDING for pairing
+  // Sort logs chronologically to ensure proper pairing
   const sortedLogs = [...logs].sort((a, b) => {
-    if (a.user_id < b.user_id) return -1;
-    if (a.user_id > b.user_id) return 1;
-    // Handle potential null timestamps defensively, though unlikely based on schema
-    return parseISO(a.timestamp ?? '1970-01-01T00:00:00Z').getTime() - parseISO(b.timestamp ?? '1970-01-01T00:00:00Z').getTime();
+    return parseISO(a.timestamp ?? '1970-01-01T00:00:00Z').getTime() -
+           parseISO(b.timestamp ?? '1970-01-01T00:00:00Z').getTime();
   });
 
-  let lastSignIn: FetchedLog | null = null; // Use FetchedLog type
+  // Track open signin events for each employee
+  const openSignins: Record<string, { log: FetchedLog, reportDate: string }> = {};
 
+  // Helper function to format date in the specified timezone
+  const formatDateInTimezone = (date: Date): string => {
+    try {
+      return formatInTimeZone(date, timezone, 'yyyy-MM-dd');
+    } catch (error) {
+      console.error("Error formatting date in timezone:", error);
+      return format(date, 'yyyy-MM-dd'); // Fallback to UTC
+    }
+  };
+
+  // Process all logs
   for (const log of sortedLogs) {
     if (!log.timestamp) continue; // Skip logs with null timestamps
 
-    const logDate = format(startOfDay(parseISO(log.timestamp)), 'yyyy-MM-dd');
-    const mapKey = `${log.user_id}-${logDate}`;
-
-    // Initialize report row if it doesn't exist
-    if (!reportMap.has(mapKey)) {
-      reportMap.set(mapKey, {
-        employeeId: log.user_id,
-        employeeName: log.profiles?.full_name || 'Unknown User',
-        date: logDate,
-        totalHours: 0,
-        entries: [],
-      });
-    }
-    const reportRow = reportMap.get(mapKey)!;
+    const timestamp = parseISO(log.timestamp);
+    const employeeId = log.user_id;
+    const employeeName = log.profiles?.full_name || 'Unknown User';
 
     if (log.event_type === 'signin') {
-      if (lastSignIn && lastSignIn.user_id === log.user_id) {
-         if (!lastSignIn.timestamp) continue; // Defensive check
-         const lastSignInDate = format(startOfDay(parseISO(lastSignIn.timestamp)), 'yyyy-MM-dd');
-         const lastSignInKey = `${lastSignIn.user_id}-${lastSignInDate}`;
-         if(reportMap.has(lastSignInKey)) {
-             reportMap.get(lastSignInKey)!.entries.push({ in: lastSignIn.timestamp, out: null });
-         }
+      // For signin events, this is the date we'll attribute the shift to
+      // Use timezone-aware date formatting
+      const reportDate = formatDateInTimezone(timestamp);
+
+      // Initialize report row if it doesn't exist
+      const mapKey = `${employeeId}-${reportDate}`;
+      if (!reportMap.has(mapKey)) {
+        reportMap.set(mapKey, {
+          employeeId,
+          employeeName,
+          date: reportDate,
+          totalHours: 0,
+          entries: [],
+        });
       }
-      lastSignIn = log;
+
+      // If there's already an open signin for this employee, close it as incomplete
+      if (openSignins[employeeId]) {
+        const prevSignin = openSignins[employeeId];
+        const prevMapKey = `${employeeId}-${prevSignin.reportDate}`;
+        if (reportMap.has(prevMapKey)) {
+          reportMap.get(prevMapKey)!.entries.push({
+            in: prevSignin.log.timestamp,
+            out: null
+          });
+        }
+      }
+
+      // Track this new signin
+      openSignins[employeeId] = {
+        log,
+        reportDate
+      };
+
     } else if (log.event_type === 'signout') {
-      if (lastSignIn &&
-          lastSignIn.user_id === log.user_id &&
-          lastSignIn.timestamp && // Ensure last sign-in timestamp exists
-          isSameDay(parseISO(lastSignIn.timestamp), parseISO(log.timestamp)))
-      {
-        const duration = calculateDuration(lastSignIn.timestamp, log.timestamp);
+      // For signout, find the matching signin regardless of date
+      const openSignin = openSignins[employeeId];
+
+      if (openSignin && openSignin.log.timestamp) {
+        // We have a matching signin - use the date from the signin for reporting
+        const reportDate = openSignin.reportDate;
+        const mapKey = `${employeeId}-${reportDate}`;
+
+        // Initialize report row if it doesn't exist (shouldn't happen but just in case)
+        if (!reportMap.has(mapKey)) {
+          reportMap.set(mapKey, {
+            employeeId,
+            employeeName,
+            date: reportDate,
+            totalHours: 0,
+            entries: [],
+          });
+        }
+
+        const reportRow = reportMap.get(mapKey)!;
+
+        // Calculate duration and add the entry
+        const duration = calculateDuration(openSignin.log.timestamp, log.timestamp);
         reportRow.totalHours += duration;
-        reportRow.entries.push({ in: lastSignIn.timestamp, out: log.timestamp });
-        lastSignIn = null;
+        reportRow.entries.push({
+          in: openSignin.log.timestamp,
+          out: log.timestamp
+        });
+
+        // Clear the open signin
+        delete openSignins[employeeId];
       } else {
-        reportRow.entries.push({ in: null, out: log.timestamp });
-        lastSignIn = null;
+        // Orphaned signout - create an entry on the date of the signout
+        // Use timezone-aware date formatting
+        const reportDate = formatDateInTimezone(timestamp);
+        const mapKey = `${employeeId}-${reportDate}`;
+
+        // Initialize report row if it doesn't exist
+        if (!reportMap.has(mapKey)) {
+          reportMap.set(mapKey, {
+            employeeId,
+            employeeName,
+            date: reportDate,
+            totalHours: 0,
+            entries: [],
+          });
+        }
+
+        // Add the orphaned signout
+        reportMap.get(mapKey)!.entries.push({
+          in: null,
+          out: log.timestamp
+        });
       }
     } else {
-        lastSignIn = null;
+      // For other event types (like break_start, break_end), we ignore them in this report
+      // They could be handled separately if needed
     }
   }
 
-  if (lastSignIn && lastSignIn.timestamp) { // Check timestamp before using
-     const lastSignInDate = format(startOfDay(parseISO(lastSignIn.timestamp)), 'yyyy-MM-dd');
-     const lastSignInKey = `${lastSignIn.user_id}-${lastSignInDate}`;
-     if(reportMap.has(lastSignInKey)) {
-        reportMap.get(lastSignInKey)!.entries.push({ in: lastSignIn.timestamp, out: null });
-     }
-  }
+  // Add any remaining open signins as incomplete entries
+  Object.values(openSignins).forEach(({ log, reportDate }) => {
+    if (!log.timestamp) return; // Skip if no timestamp
+
+    const mapKey = `${log.user_id}-${reportDate}`;
+    if (reportMap.has(mapKey)) {
+      reportMap.get(mapKey)!.entries.push({
+        in: log.timestamp,
+        out: null
+      });
+    }
+  });
 
   // Convert map values to array and sort by date descending, then name
   const sortedData = Array.from(reportMap.values()).sort((a, b) => {
@@ -150,6 +222,26 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
     return redirect('/?message=Unauthorized access') // Redirect non-admins
   }
   // -------------------------
+
+  // --- Fetch Timezone Setting ---
+  let timezone = 'UTC'; // Default timezone
+  try {
+    const { data: settings, error: tzError } = await supabase
+      .from('app_settings')
+      .select('timezone')
+      .eq('id', 1)
+      .single();
+
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting:", tzError);
+      }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+    }
+  } catch (error) {
+    console.error("Error fetching timezone setting:", error);
+  }
 
   // Fetch data for filters (list of employees)
   const { data: employeesData, error: employeesError } = await supabase
@@ -198,7 +290,7 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
   if (!logsError && logsData) {
       try {
           // Cast logsData to the specific type before passing
-          aggregatedReportData = aggregateLogs(logsData as FetchedLog[]);
+          aggregatedReportData = aggregateLogs(logsData as FetchedLog[], timezone);
       } catch (aggError) {
           console.error("Error aggregating report data:", aggError);
           // Maybe set a specific error message for the UI
@@ -350,10 +442,13 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
                                 </svg>
                                 <div>
                                   <span className="font-semibold text-foreground">
-                                    {format(dateObj, 'EEEE')}
+                                    {formatInTimeZone(dateObj, timezone, 'EEEE')}
                                   </span>
                                   <span className="ml-2 text-sm text-muted-foreground">
-                                    {format(dateObj, 'MMMM d, yyyy')}
+                                    {formatInTimeZone(dateObj, timezone, 'MMMM d, yyyy')}
+                                  </span>
+                                  <span className="ml-2 text-xs text-primary">
+                                    ({timezone.replace(/_/g, ' ')})
                                   </span>
                                 </div>
                               </div>
@@ -400,13 +495,13 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
                                           <div className="flex items-center">
                                             <div className={`h-2 w-2 rounded-full mr-2 ${entry.in ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                                             <span className={entry.in ? 'text-foreground' : 'text-muted-foreground'}>
-                                              {entry.in ? format(parseISO(entry.in), 'h:mm a') : '--'}
+                                              {entry.in ? formatInTimeZone(parseISO(entry.in), timezone, 'h:mm a') : '--'}
                                             </span>
                                           </div>
                                           <div className="flex items-center">
                                             <div className={`h-2 w-2 rounded-full mr-2 ${entry.out ? 'bg-red-500' : 'bg-gray-300'}`}></div>
                                             <span className={entry.out ? 'text-foreground' : 'text-destructive/70'}>
-                                              {entry.out ? format(parseISO(entry.out), 'h:mm a') : 'Missing'}
+                                              {entry.out ? formatInTimeZone(parseISO(entry.out), timezone, 'h:mm a') : 'Missing'}
                                             </span>
                                           </div>
                                         </div>

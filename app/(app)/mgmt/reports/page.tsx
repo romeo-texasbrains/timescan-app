@@ -55,13 +55,13 @@ function formatDuration(seconds: number): string {
 export default async function ManagerReportsPage({ searchParams }: ManagerReportsPageProps) {
   const supabase = await createClient()
   const awaitedSearchParams = await searchParams; // Await searchParams for Next.js 15+
-  
+
   // --- Authorization Check ---
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return redirect('/login?message=Unauthorized')
   }
-  
+
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
@@ -72,16 +72,36 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
     return redirect('/?message=Unauthorized access') // Redirect non-managers
   }
 
+  // --- Fetch Timezone Setting ---
+  let timezone = 'UTC'; // Default timezone
+  try {
+    const { data: settings, error: tzError } = await supabase
+      .from('app_settings')
+      .select('timezone')
+      .eq('id', 1)
+      .single();
+
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting:", tzError);
+      }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+    }
+  } catch (error) {
+    console.error("Error fetching timezone setting:", error);
+  }
+
   // --- Get Employees for Filter Dropdown ---
   const { data: employeesData, error: employeesError } = await supabase
     .from('profiles')
     .select('id, full_name')
     .order('full_name')
-  
+
   if (employeesError) {
     console.error('Error fetching employees:', employeesError)
   }
-  
+
   const employees = employeesData?.map(e => ({ id: e.id, name: e.full_name || 'Unnamed User' })) || [];
 
   // --- Get Filter Values ---
@@ -101,12 +121,12 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
     // Ensure time part doesn't exclude start day
     query = query.gte('timestamp', startDate + 'T00:00:00.000Z');
   }
-  
+
   if (endDate) {
     // Ensure time part includes end day
     query = query.lte('timestamp', endDate + 'T23:59:59.999Z');
   }
-  
+
   if (employeeId) {
     query = query.eq('user_id', employeeId);
   }
@@ -119,69 +139,134 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
 
   // --- Process Logs into Report Format ---
   const reportData: Record<string, Record<string, ReportRow>> = {};
-  
-  // Group logs by date and employee
-  logs?.forEach((log: FetchedLog) => {
-    const date = format(parseISO(log.timestamp), 'yyyy-MM-dd');
+
+  // First, sort logs by timestamp to ensure chronological processing
+  const sortedLogs = logs?.sort((a, b) =>
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  ) || [];
+
+  // Track open signin events for each employee
+  const openSignins: Record<string, { log: FetchedLog, entryIndex: number, reportDate: string }> = {};
+
+  // Helper function to format date in the specified timezone
+  const formatDateInTimezone = (date: Date): string => {
+    try {
+      return formatInTimeZone(date, timezone, 'yyyy-MM-dd');
+    } catch (error) {
+      console.error("Error formatting date in timezone:", error);
+      return format(date, 'yyyy-MM-dd'); // Fallback to UTC
+    }
+  };
+
+  // Process all logs
+  sortedLogs.forEach((log: FetchedLog) => {
+    // For all event types, we use the date of the event for grouping
+    const timestamp = parseISO(log.timestamp);
     const employeeId = log.user_id;
     const employeeName = log.profiles?.full_name || 'Unknown';
-    
-    // Initialize date group if it doesn't exist
-    if (!reportData[date]) {
-      reportData[date] = {};
-    }
-    
-    // Initialize employee in date group if they don't exist
-    if (!reportData[date][employeeId]) {
-      reportData[date][employeeId] = {
-        employeeId,
-        employeeName,
-        date,
-        totalHours: 0,
-        entries: []
-      };
-    }
-    
-    // Process log based on event type
-    const currentRow = reportData[date][employeeId];
-    
+
     if (log.event_type === 'signin') {
-      // Start a new entry pair
-      currentRow.entries.push({ 
-        in: log.timestamp, 
-        out: null 
+      // For signin events, this is the date we'll attribute the shift to
+      const reportDate = formatDateInTimezone(timestamp);
+
+      // Initialize date group if it doesn't exist
+      if (!reportData[reportDate]) {
+        reportData[reportDate] = {};
+      }
+
+      // Initialize employee in date group if they don't exist
+      if (!reportData[reportDate][employeeId]) {
+        reportData[reportDate][employeeId] = {
+          employeeId,
+          employeeName,
+          date: reportDate,
+          totalHours: 0,
+          entries: []
+        };
+      }
+
+      // Add the signin entry
+      const currentRow = reportData[reportDate][employeeId];
+      const entryIndex = currentRow.entries.length;
+
+      currentRow.entries.push({
+        in: log.timestamp,
+        out: null
       });
+
+      // Track this open signin
+      openSignins[employeeId] = {
+        log,
+        entryIndex,
+        reportDate
+      };
+
     } else if (log.event_type === 'signout') {
-      // Find the last entry without an out time
-      const lastEntryIndex = currentRow.entries.length - 1;
-      if (lastEntryIndex >= 0 && currentRow.entries[lastEntryIndex].in && !currentRow.entries[lastEntryIndex].out) {
-        currentRow.entries[lastEntryIndex].out = log.timestamp;
-        
+      // For signout, find the matching signin regardless of date
+      const openSignin = openSignins[employeeId];
+
+      if (openSignin) {
+        // We have a matching signin - use the date from the signin for reporting
+        const reportDate = openSignin.reportDate;
+        const currentRow = reportData[reportDate][employeeId];
+        const entryIndex = openSignin.entryIndex;
+
+        // Update the entry with the signout time
+        currentRow.entries[entryIndex].out = log.timestamp;
+
         // Calculate hours for this entry
         const duration = calculateDuration(
-          currentRow.entries[lastEntryIndex].in!,
+          openSignin.log.timestamp,
           log.timestamp
         );
+
         currentRow.totalHours += duration / 3600; // Convert seconds to hours
+
+        // Clear the open signin
+        delete openSignins[employeeId];
       } else {
-        // Orphaned signout, create a new entry
-        currentRow.entries.push({ 
-          in: null, 
-          out: log.timestamp 
+        // Orphaned signout - create an entry on the date of the signout
+        const reportDate = formatDateInTimezone(timestamp);
+
+        // Initialize date group if it doesn't exist
+        if (!reportData[reportDate]) {
+          reportData[reportDate] = {};
+        }
+
+        // Initialize employee in date group if they don't exist
+        if (!reportData[reportDate][employeeId]) {
+          reportData[reportDate][employeeId] = {
+            employeeId,
+            employeeName,
+            date: reportDate,
+            totalHours: 0,
+            entries: []
+          };
+        }
+
+        // Add the orphaned signout
+        reportData[reportDate][employeeId].entries.push({
+          in: null,
+          out: log.timestamp
         });
       }
-    } else if (log.event_type === 'break_start') {
-      // Find the current entry and add break start
-      const lastEntryIndex = currentRow.entries.length - 1;
-      if (lastEntryIndex >= 0 && currentRow.entries[lastEntryIndex].in && !currentRow.entries[lastEntryIndex].out) {
-        currentRow.entries[lastEntryIndex].breakStart = log.timestamp;
+    } else if (log.event_type === 'break_start' || log.event_type === 'break_end') {
+      // For break events, find the open signin for this employee
+      const openSignin = openSignins[employeeId];
+
+      if (openSignin) {
+        // We have an open shift - add the break event to it
+        const reportDate = openSignin.reportDate;
+        const currentRow = reportData[reportDate][employeeId];
+        const entryIndex = openSignin.entryIndex;
+
+        if (log.event_type === 'break_start') {
+          currentRow.entries[entryIndex].breakStart = log.timestamp;
+        } else { // break_end
+          currentRow.entries[entryIndex].breakEnd = log.timestamp;
+        }
       }
-    } else if (log.event_type === 'break_end') {
-      // Find the current entry and add break end
-      const lastEntryIndex = currentRow.entries.length - 1;
-      if (lastEntryIndex >= 0 && currentRow.entries[lastEntryIndex].in && !currentRow.entries[lastEntryIndex].out) {
-        currentRow.entries[lastEntryIndex].breakEnd = log.timestamp;
-      }
+      // If no open signin, we ignore the break event
     }
   });
 
@@ -192,7 +277,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
       // Sort by date (descending)
       const dateComparison = new Date(b.date).getTime() - new Date(a.date).getTime();
       if (dateComparison !== 0) return dateComparison;
-      
+
       // Then by employee name (ascending)
       return a.employeeName.localeCompare(b.employeeName);
     });
@@ -200,7 +285,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
   return (
     <div className="container mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Attendance Reports</h1>
-      
+
       {/* Filters */}
       <Card className="mb-8">
         <CardHeader>
@@ -217,7 +302,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
               <Label htmlFor="endDate">End Date</Label>
               <Input id="endDate" name="endDate" type="date" defaultValue={endDate || ''} />
             </div>
-            
+
             {/* Employee Filter */}
             <div className="space-y-2">
               <Label htmlFor="employeeId">Employee</Label>
@@ -233,7 +318,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
                 </SelectContent>
               </Select>
             </div>
-            
+
             {/* Submit Button */}
             <div className="flex items-end">
               <Button type="submit" className="w-full">Apply Filters</Button>
@@ -241,7 +326,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
           </form>
         </CardContent>
       </Card>
-      
+
       {/* Report Table */}
       <Card>
         <CardHeader>
@@ -262,7 +347,10 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
                 <tbody>
                   {reportRows.map((row, index) => (
                     <tr key={`${row.date}-${row.employeeId}`} className={index % 2 === 0 ? 'bg-background' : 'bg-muted/20'}>
-                      <td className="px-4 py-3 border-t">{format(new Date(row.date), 'MMM d, yyyy')}</td>
+                      <td className="px-4 py-3 border-t">
+                        {format(new Date(row.date), 'MMM d, yyyy')}
+                        <span className="ml-2 text-xs text-primary">({timezone.replace(/_/g, ' ')})</span>
+                      </td>
                       <td className="px-4 py-3 border-t">{row.employeeName}</td>
                       <td className="px-4 py-3 border-t font-medium">
                         {formatDuration(row.totalHours * 3600)}
@@ -273,22 +361,22 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
                             <div key={i} className="text-sm">
                               {entry.in && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-500/10 text-green-600 mr-2">
-                                  In: {format(new Date(entry.in), 'h:mm a')}
+                                  In: {formatInTimeZone(parseISO(entry.in), timezone, 'h:mm a')}
                                 </span>
                               )}
                               {entry.out && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-red-500/10 text-red-600 mr-2">
-                                  Out: {format(new Date(entry.out), 'h:mm a')}
+                                  Out: {formatInTimeZone(parseISO(entry.out), timezone, 'h:mm a')}
                                 </span>
                               )}
                               {entry.breakStart && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-amber-500/10 text-amber-600 mr-2">
-                                  Break: {format(new Date(entry.breakStart), 'h:mm a')}
+                                  Break: {formatInTimeZone(parseISO(entry.breakStart), timezone, 'h:mm a')}
                                 </span>
                               )}
                               {entry.breakEnd && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-500/10 text-blue-600">
-                                  Return: {format(new Date(entry.breakEnd), 'h:mm a')}
+                                  Return: {formatInTimeZone(parseISO(entry.breakEnd), timezone, 'h:mm a')}
                                 </span>
                               )}
                             </div>

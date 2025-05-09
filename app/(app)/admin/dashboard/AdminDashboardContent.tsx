@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { ChartBarIcon, DocumentTextIcon, UsersIcon, ClockIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -33,6 +34,7 @@ interface AdminDashboardContentProps {
     departmentMap: Map<string, string>;
     recentLogs: any[];
     today: Date;
+    timezone: string;
   };
 }
 
@@ -51,6 +53,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
   const [todayLogsCountState, setTodayLogsCountState] = useState(0);
   const [departmentMapState, setDepartmentMapState] = useState<Record<string, string>>({});
   const [recentLogsState, setRecentLogsState] = useState<any[]>([]);
+  const [timezoneState, setTimezoneState] = useState('UTC');
 
   // Extract data from props with safety checks
   const {
@@ -61,7 +64,8 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     todayLogsCount = 0,
     departmentMap = {},
     recentLogs = [],
-    today = new Date()
+    today = new Date(),
+    timezone = 'UTC'
   } = initialData || {};
 
   // Initialize state with initial data
@@ -73,6 +77,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     setTodayLogsCountState(todayLogsCount);
     setDepartmentMapState(departmentMap);
     setRecentLogsState(recentLogs);
+    setTimezoneState(timezone);
     setIsClient(true);
     stopLoading();
   }, [
@@ -83,6 +88,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     todayLogsCount,
     departmentMap,
     recentLogs,
+    timezone,
     stopLoading
   ]);
 
@@ -317,7 +323,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
               name: employee.full_name || 'Unnamed',
               status: latestStatus.status,
               lastActivity: getActivityLabel(latestStatus.status),
-              lastActivityTime: format(new Date(latestStatus.timestamp), 'h:mm a'),
+              lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezoneState, 'h:mm a'),
               department_id: employee.department_id || 'unassigned',
               totalActiveTime: Math.round(totalActiveTime),
               totalBreakTime: Math.round(totalBreakTime)
@@ -448,7 +454,8 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="text-sm text-muted-foreground">
-              {format(today, 'EEEE, MMMM d, yyyy')}
+              {formatInTimeZone(today, isRealTimeEnabled ? timezoneState : timezone, 'EEEE, MMMM d, yyyy')}
+              <span className="ml-2 text-xs text-primary">({(isRealTimeEnabled ? timezoneState : timezone).replace(/_/g, ' ')})</span>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -477,7 +484,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
             </div>
             {lastUpdateTime && (
               <div className="text-xs text-muted-foreground">
-                Last updated: {format(lastUpdateTime, 'h:mm:ss a')}
+                Last updated: {formatInTimeZone(lastUpdateTime, isRealTimeEnabled ? timezoneState : timezone, 'h:mm:ss a')}
               </div>
             )}
           </div>
@@ -847,10 +854,10 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                           eventType = log.event_type;
                       }
 
-                      // Format timestamp
-                      const timestamp = new Date(log.timestamp);
-                      const dateStr = format(timestamp, 'MMM d, yyyy');
-                      const timeStr = format(timestamp, 'h:mm a');
+                      // Format timestamp with timezone
+                      const timestamp = parseISO(log.timestamp);
+                      const dateStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'MMM d, yyyy');
+                      const timeStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'h:mm a');
 
                       return (
                         <tr key={log.id} className="border-t border-border hover:bg-muted/20">

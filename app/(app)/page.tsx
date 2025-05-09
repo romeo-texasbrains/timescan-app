@@ -9,6 +9,26 @@ export default async function TimeScanDashboard() {
   // Get user session
   const { data: { user } } = await supabase.auth.getUser();
 
+  // Fetch timezone setting
+  let timezone = 'UTC'; // Default timezone
+  try {
+    const { data: settings, error: tzError } = await supabase
+      .from('app_settings')
+      .select('timezone')
+      .eq('id', 1)
+      .single();
+
+    if (tzError) {
+      if (tzError.code !== 'PGRST116') { // Ignore row not found
+        console.error("Error fetching timezone setting:", tzError);
+      }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+    }
+  } catch (error) {
+    console.error("Error fetching timezone setting:", error);
+  }
+
   // Fetch attendance logs for stats and charts
   const { data: logs } = await supabase
     .from('attendance_logs')
@@ -40,5 +60,6 @@ export default async function TimeScanDashboard() {
     logs={logs || []}
     userProfile={profile || null}
     departmentName={departmentName}
+    timezone={timezone}
   />;
 }
