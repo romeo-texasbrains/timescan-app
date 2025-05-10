@@ -102,7 +102,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Wrap MainContentWrapper with TimezoneProvider */}
         <TimezoneProvider initialTimezone={timezone}>
-          <MainContentWrapper userEmail={userEmail} timezone={timezone}>
+          <MainContentWrapper userEmail={userEmail} timezone={timezone} role={userRole}>
             <div className="mobile-spacing">
               {children}
             </div>

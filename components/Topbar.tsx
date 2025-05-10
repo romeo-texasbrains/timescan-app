@@ -125,18 +125,8 @@ function TopbarClient({ userEmail, timezone, isSidebarCollapsed: initialCollapse
         isMobile ? 'left-0 right-0 w-full' : (isSidebarCollapsed ? 'left-20 right-0 w-[calc(100%-5rem)]' : 'left-64 right-0 w-[calc(100%-16rem)]')
       )}
     >
-      {/* Left side: Hamburger menu on mobile, Logo */}
+      {/* Left side: Logo */}
       <div className="flex items-center gap-2">
-        {isMobile && (
-          <button
-            onClick={toggleSidebar}
-            className="p-2 rounded-lg text-muted-foreground hover:bg-primary/10 hover:text-primary active:bg-primary/20 transition-colors"
-            aria-label="Toggle sidebar"
-          >
-            <Bars3Icon className="h-6 w-6" />
-          </button>
-        )}
-
         <Link href="/" className="relative flex items-center h-7 w-14 sm:h-8 sm:w-16">
           <Image
             src="/logo.png"

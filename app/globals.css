@@ -241,6 +241,31 @@ body {
   .truncate-mobile {
     @apply truncate max-w-full;
   }
+
+  /* Bottom navigation styles */
+  main {
+    @apply pb-24; /* Add padding to bottom of main content to account for bottom navigation */
+  }
+
+  /* Custom height for bottom navigation */
+  .h-18 {
+    height: 4.5rem;
+  }
+
+  /* Bottom navigation active item styles */
+  .bottom-nav-active {
+    @apply text-primary font-medium;
+  }
+
+  /* Bottom navigation item hover effect */
+  .bottom-nav-item {
+    @apply transition-transform active:scale-90;
+  }
+
+  /* More menu styles */
+  .bottom-nav-more-menu {
+    @apply rounded-t-xl shadow-lg overflow-hidden;
+  }
 }
 
 /* Responsive table styles for mobile card view */

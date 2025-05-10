@@ -3,42 +3,52 @@
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Topbar from '@/components/Topbar'; // Import Topbar here
+import BottomNavigation from '@/components/BottomNavigation'; // Import BottomNavigation
+import clsx from 'clsx'; // Import clsx for className conditionals
 
 // Simple check for mobile width
 const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth < 768;
+
+// Define valid roles
+type UserRole = 'user' | 'manager' | 'admin';
 
 interface MainContentWrapperProps {
   children: React.ReactNode;
   userEmail: string;
   timezone: string;
+  role?: UserRole;
 }
 
 import dynamic from 'next/dynamic';
 
 // Server component with fixed layout to avoid hydration mismatches
-function MainContentWrapperServer({ children, userEmail, timezone }: MainContentWrapperProps) {
+function MainContentWrapperServer({ children, userEmail, timezone, role = 'user' }: MainContentWrapperProps) {
   return (
     <>
       {/* Topbar is now outside the main content wrapper */}
       <Topbar userEmail={userEmail} timezone={timezone} isSidebarCollapsed={true} />
 
       <div className="flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out overflow-x-hidden pt-14 ml-0">
-        <main className="flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing">
+        <main className="flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing pb-24">
           {/* Children will inherit the TimezoneContext provided in layout.tsx */}
           {children}
         </main>
       </div>
+
+      {/* Bottom Navigation for mobile */}
+      <BottomNavigation role={role} />
     </>
   );
 }
 
 // Client component with dynamic layout
-function MainContentWrapperClient({ children, userEmail, timezone }: MainContentWrapperProps) {
+function MainContentWrapperClient({ children, userEmail, timezone, role = 'user' }: MainContentWrapperProps) {
   const pathname = usePathname();
   // State to track sidebar collapse status and visibility
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(isMobileWidth());
   const [isSidebarHidden, setIsSidebarHidden] = useState(isMobileWidth());
   const [isMobile, setIsMobile] = useState(isMobileWidth());
+  const [showSidebar, setShowSidebar] = useState(false);
 
   useEffect(() => {
     // Listener to sync sidebar collapse state for padding adjustment
@@ -73,8 +83,17 @@ function MainContentWrapperClient({ children, userEmail, timezone }: MainContent
     if (isMobileWidth()) {
       setIsSidebarCollapsed(true);
       setIsSidebarHidden(true);
+      setShowSidebar(false);
     }
   }, [pathname]);
+
+  // Handle "More" button click from bottom navigation
+  // This is now a fallback in case the BottomNavigation component's own more menu fails
+  const handleMoreClick = () => {
+    // We'll leave this empty for now as we're using the BottomNavigation's own more menu
+    // If needed, we can implement a fallback behavior here
+    console.log("More button clicked in MainContentWrapper");
+  };
 
   return (
     <>
@@ -86,11 +105,17 @@ function MainContentWrapperClient({ children, userEmail, timezone }: MainContent
           isMobile ? 'ml-0' : (isSidebarCollapsed ? 'ml-20' : 'ml-64')
         }`}
       >
-        <main className="flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing">
+        <main className={clsx(
+          "flex-1 p-3 xs:p-4 sm:p-6 md:p-8 lg:p-10 mobile-spacing",
+          isMobile ? "pb-24" : "pb-10" // More padding on mobile for bottom navigation
+        )}>
           {/* Children will inherit the TimezoneContext provided in layout.tsx */}
           {children}
         </main>
       </div>
+
+      {/* Bottom Navigation for mobile */}
+      {isMobile && <BottomNavigation role={role} onMoreClick={handleMoreClick} />}
     </>
   );
 }
@@ -98,7 +123,7 @@ function MainContentWrapperClient({ children, userEmail, timezone }: MainContent
 // Create a client-only version of the MainContentWrapper component
 const ClientOnlyMainContentWrapper = dynamic(() => Promise.resolve(MainContentWrapperClient), {
   ssr: false,
-  loading: () => <MainContentWrapperServer userEmail="" timezone="" children={null} />
+  loading: () => <MainContentWrapperServer userEmail="" timezone="" role="user" children={null} />
 });
 
 // Export the client-only version as the default component

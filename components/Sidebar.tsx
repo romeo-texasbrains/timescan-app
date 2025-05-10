@@ -241,7 +241,8 @@ export default function Sidebar({ role = 'user' }: { role?: UserRole }) {
           "fixed top-0 left-0 h-screen flex flex-col shadow-xl z-40",
           "bg-sidebar/80 dark:bg-sidebar/80 backdrop-blur-lg border-r border-white/10 text-sidebar-foreground",
           "touch-manipulation", // Improve touch handling
-          isMobile && !isHidden && "w-[16rem]" // Force width on mobile when visible
+          isMobile && !isHidden && "w-[16rem]", // Force width on mobile when visible
+          isMobile && "md:flex hidden" // Hide on mobile, show on desktop
         )}
       >
        {/* Header Section - Logo and Title */}
