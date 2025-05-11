@@ -27,19 +27,32 @@ exports.handler = async function(event, context) {
 
     // Get today's birthdays
     const today = new Date();
-    const month = today.getMonth() + 1; // JavaScript months are 0-indexed
+    const month = today.getMonth();  // JavaScript months are 0-indexed
     const day = today.getDate();
 
-    // Format month and day with leading zeros if needed
-    const monthStr = month.toString().padStart(2, '0');
-    const dayStr = day.toString().padStart(2, '0');
-
-    // Query for users with birthdays today using string pattern matching
-    const { data: birthdays, error: birthdaysError } = await supabase
+    // Get all profiles with date_of_birth not null
+    const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
       .select('*')
-      .not('date_of_birth', 'is', null)
-      .filter('date_of_birth::text', 'ilike', `%-${monthStr}-${dayStr}%`);
+      .not('date_of_birth', 'is', null);
+
+    if (profilesError) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Error fetching profiles', details: profilesError })
+      };
+    }
+
+    // Filter profiles with birthdays today in JavaScript
+    // This avoids SQL type issues with date comparisons
+    const birthdays = (profiles || []).filter(profile => {
+      if (!profile.date_of_birth) return false;
+
+      const dob = new Date(profile.date_of_birth);
+      return dob.getMonth() === month && dob.getDate() === day;
+    });
+
+    const birthdaysError = null;
 
     if (birthdaysError) {
       return {
