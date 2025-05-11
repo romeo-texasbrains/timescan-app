@@ -1,30 +1,17 @@
-name: Daily Birthday Notifications
+name: Trigger Netlify Birthday Function # Changed name slightly for clarity
 
 on:
   schedule:
-    # Run at 8:00 AM UTC every day
+    # Runs "at 08:00 UTC every day" (using your existing schedule)
     - cron: '0 8 * * *'
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch: # Allows manual triggering from GitHub UI
 
 jobs:
-  trigger-notifications:
+  trigger_netlify_function: # Changed job name for clarity
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Trigger birthday notifications
-        run: node scripts/trigger-birthday-notifications.js
-        env:
-          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Trigger Netlify Function
+        run: |
+          curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          "https://txblogin.netlify.app/api/cron/trigger-birthdays"
