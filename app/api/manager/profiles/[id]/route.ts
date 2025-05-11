@@ -6,7 +6,8 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   const supabase = await createClient();
-  const { id } = params;
+  const awaitedParams = await params;
+  const { id } = awaitedParams;
 
   // Check if user is logged in
   const { data: { user }, error: userError } = await supabase.auth.getUser();

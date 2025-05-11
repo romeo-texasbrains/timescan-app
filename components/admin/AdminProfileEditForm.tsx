@@ -47,7 +47,13 @@ export default function AdminProfileEditForm({ profile, departments }: AdminProf
       data.append('full_name', formData.get('full_name') as string);
       data.append('phone_number', formData.get('phone_number') as string);
       data.append('address', formData.get('address') as string);
-      data.append('date_of_birth', formData.get('date_of_birth') as string);
+
+      // Handle date_of_birth - only append if it's not empty
+      const dateOfBirth = formData.get('date_of_birth') as string;
+      if (dateOfBirth && dateOfBirth.trim() !== '') {
+        data.append('date_of_birth', dateOfBirth);
+      }
+
       data.append('emergency_contact_name', formData.get('emergency_contact_name') as string);
       data.append('emergency_contact_relationship', formData.get('emergency_contact_relationship') as string);
       data.append('emergency_contact_phone', formData.get('emergency_contact_phone') as string);

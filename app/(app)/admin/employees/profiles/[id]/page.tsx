@@ -1,18 +1,21 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
-import { Profile } from '@/lib/types/profile';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import AdminProfileEditForm from '@/components/admin/AdminProfileEditForm';
 
-interface AdminEmployeeProfilePageProps {
-  params: {
-    id: string;
-  };
-}
+type Params = {
+  id: string;
+};
 
-export default async function AdminEmployeeProfilePage({ params }: AdminEmployeeProfilePageProps) {
-  const { id } = await params;
+export default async function AdminEmployeeProfilePage({
+  params,
+}: {
+  params: Params;
+}) {
+  // Await params before using its properties
+  const awaitedParams = await params;
+  const id = awaitedParams.id;
   const supabase = await createClient();
 
   // Check if user is admin
