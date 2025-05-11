@@ -8,11 +8,11 @@ import { Profile } from '@/lib/types/profile';
  */
 export function isBirthdayToday(dateOfBirth: string | null): boolean {
   if (!dateOfBirth) return false;
-  
+
   const today = new Date();
   const dob = new Date(dateOfBirth);
-  
-  return today.getMonth() === dob.getMonth() && 
+
+  return today.getMonth() === dob.getMonth() &&
          today.getDate() === dob.getDate();
 }
 
@@ -29,21 +29,23 @@ export async function getTodaysBirthdays(
     const today = new Date();
     const month = today.getMonth() + 1; // JavaScript months are 0-indexed
     const day = today.getDate();
-    
-    // Query for users with birthdays today
-    // We need to use EXTRACT to get the month and day from the date_of_birth field
+
+    // Format month and day with leading zeros if needed
+    const monthStr = month.toString().padStart(2, '0');
+    const dayStr = day.toString().padStart(2, '0');
+
+    // Query for users with birthdays today using string pattern matching
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .not('date_of_birth', 'is', null)
-      .filter('EXTRACT(MONTH FROM date_of_birth)', 'eq', month)
-      .filter('EXTRACT(DAY FROM date_of_birth)', 'eq', day);
-    
+      .filter('date_of_birth::text', 'ilike', `%-${monthStr}-${dayStr}%`);
+
     if (error) {
       console.error('Error fetching birthdays:', error);
       return [];
     }
-    
+
     return data || [];
   } catch (error) {
     console.error('Error in getTodaysBirthdays:', error);
@@ -67,17 +69,17 @@ export function formatBirthdayMessage(profile: Profile): string {
  */
 export function calculateAge(dateOfBirth: string | null): number | null {
   if (!dateOfBirth) return null;
-  
+
   const today = new Date();
   const dob = new Date(dateOfBirth);
-  
+
   let age = today.getFullYear() - dob.getFullYear();
   const monthDiff = today.getMonth() - dob.getMonth();
-  
+
   // If birthday hasn't occurred yet this year, subtract 1
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
     age--;
   }
-  
+
   return age;
 }
