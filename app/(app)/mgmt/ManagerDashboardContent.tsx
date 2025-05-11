@@ -680,18 +680,11 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
           </div>
         </CardContent>
         <CardFooter className="flex justify-end border-t pt-4">
-          <div className="flex gap-2">
-            <Link href="/mgmt/reports">
-              <Button variant="outline" size="sm">
-                View Detailed Reports
-              </Button>
-            </Link>
-            <Link href="/mgmt/adjustments">
-              <Button size="sm">
-                Manage Adjustments
-              </Button>
-            </Link>
-          </div>
+          <Link href="/mgmt/reports">
+            <Button size="sm">
+              View Detailed Reports
+            </Button>
+          </Link>
         </CardFooter>
       </Card>
 
@@ -791,7 +784,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
       </Card>
 
       {/* Quick Links */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         <Link href="/mgmt/reports">
           <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between">
@@ -802,19 +795,6 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                 </CardDescription>
               </div>
               <DocumentTextIcon className="h-6 w-6 text-primary" />
-            </CardHeader>
-          </Card>
-        </Link>
-        <Link href="/mgmt/adjustments">
-          <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Manage Adjustments</CardTitle>
-                <CardDescription>
-                  Add or edit attendance adjustments for your team
-                </CardDescription>
-              </div>
-              <ClockIcon className="h-6 w-6 text-primary" />
             </CardHeader>
           </Card>
         </Link>

@@ -96,6 +96,46 @@ export async function POST(request: Request) {
 
       // Always allow manual punch out, even if the system thinks the user isn't signed in
       // This helps resolve UI/server state mismatches
+
+      // Get all of today's logs for the user to determine their current state
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+
+      const { data: todayLogs, error: todayLogsError } = await supabase
+        .from('attendance_logs')
+        .select('id, event_type, timestamp')
+        .eq('user_id', user.id)
+        .gte('timestamp', todayStart)
+        .order('timestamp', { ascending: true });
+
+      if (todayLogsError) {
+        console.error(`Failed to get today's logs: ${todayLogsError.message}`);
+      } else {
+        console.log(`Found ${todayLogs?.length || 0} logs for today:`,
+          todayLogs?.map(log => `${log.event_type} at ${new Date(log.timestamp).toLocaleTimeString()}`));
+
+        // Determine if user is actually signed in by analyzing the sequence of events
+        let isCurrentlySignedIn = false;
+
+        if (todayLogs && todayLogs.length > 0) {
+          // Process the logs to determine current state
+          for (const log of todayLogs) {
+            if (log.event_type === 'signin') {
+              isCurrentlySignedIn = true;
+            } else if (log.event_type === 'signout') {
+              isCurrentlySignedIn = false;
+            }
+            // Break events don't affect signed-in status
+          }
+
+          console.log(`Attendance API: Current state - Signed in: ${isCurrentlySignedIn}`);
+
+          // If user is not actually signed in, we might want to add a note to the response
+          if (!isCurrentlySignedIn) {
+            console.log(`User ${user.email} is not actually signed in according to log sequence analysis.`);
+          }
+        }
+      }
     }
     // For QR code scans, determine event type based on last log
     else if (lastLog) {
@@ -153,6 +193,10 @@ export async function POST(request: Request) {
       } else {
         message = `Successfully punched out via dashboard.`;
       }
+
+      // Add a timestamp to help with debugging
+      const now = new Date();
+      message += ` (${now.toLocaleTimeString()})`;
     } else {
       message = `Successfully recorded ${nextEventType}.`;
 

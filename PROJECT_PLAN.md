@@ -40,11 +40,7 @@ To develop a modern, mobile-optimized web application ("TimeScan") enabling empl
 │   │   ├── mgmt/     # Manager features
 │   │   │   ├── layout.tsx
 │   │   │   ├── page.tsx
-│   │   │   ├── reports/page.tsx
-│   │   │   └── adjustments/
-│   │   │       ├── page.tsx
-│   │   │       ├── new/page.tsx
-│   │   │       └── [id]/page.tsx
+│   │   │   └── reports/page.tsx
 │   │   └── admin/
 │   │       ├── layout.tsx
 │   │       ├── page.tsx
@@ -159,11 +155,10 @@ This outlines the planned steps to build the application, updated based on recen
     * ✅ Added detailed employee status view with department information
     * ✅ Implemented department-based filtering for managers
 25. ✅ **Build Reports Page:** Implemented reports with filtering and detailed view (`app/(app)/mgmt/reports/page.tsx`)
-26. ✅ **Build Manual Adjustments Page:** Created adjustments page with CRUD functionality:
-    * ✅ View and filter attendance logs
-    * ✅ Edit existing attendance logs
-    * ✅ Add new attendance logs manually
-    * ✅ Server actions for secure data handling
+26. ✅ **Implement Attendance Editing:** Added attendance editing functionality directly in reports page
+    * ✅ Edit existing attendance logs with proper timezone handling
+    * ✅ Add break time with automatic scheduling
+    * ✅ Delete attendance records for a day
 27. ✅ **Implement Department Management:**
     * ✅ Created departments database table with RLS policies
     * ✅ Added department management UI for admins

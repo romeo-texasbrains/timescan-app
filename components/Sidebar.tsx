@@ -26,7 +26,6 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'History', href: '/history', icon: ClockIcon },
     { label: 'Manager', href: '/mgmt', icon: UsersIcon },
     { label: 'Reports', href: '/mgmt/reports', icon: ChartBarIcon },
-    { label: 'Adjustments', href: '/mgmt/adjustments', icon: DocumentTextIcon },
   ],
   admin: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: HomeIcon },

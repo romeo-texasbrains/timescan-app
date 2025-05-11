@@ -411,12 +411,24 @@ export default function DashboardClient({
     .map(([date, secs]) => ({ date, hours: +(secs / 3600).toFixed(2) }))
     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Sort daily data for chart
 
-  // Determine if user is currently signed in (last processed log was an unpaired signin)
-  // Also check the most recent log to ensure it's a signin event
-  const isCurrentlySignedIn = !!lastSignInLog ||
-    (sortedLogs.length > 0 &&
-     sortedLogs[sortedLogs.length - 1].event_type === 'signin' &&
-     !isOnBreak);
+  // Determine if user is currently signed in by analyzing the sequence of events
+  let isCurrentlySignedIn = false;
+
+  // Process all logs chronologically to determine current state
+  for (const log of sortedLogs) {
+    if (log.event_type === 'signin') {
+      isCurrentlySignedIn = true;
+    } else if (log.event_type === 'signout') {
+      isCurrentlySignedIn = false;
+    }
+    // Break events don't affect signed-in status
+  }
+
+  // Also consider the lastSignInLog as a backup check
+  if (!!lastSignInLog && !isCurrentlySignedIn) {
+    console.log('Warning: State calculation shows not signed in, but lastSignInLog exists. Using lastSignInLog as fallback.');
+    isCurrentlySignedIn = true;
+  }
 
   // Add a useEffect to log the current sign-in state for debugging
   useEffect(() => {
@@ -460,30 +472,45 @@ export default function DashboardClient({
 
   // --- Punch Out Handler ---
   const handlePunchOut = async () => {
-    setPunchStatus({ loading: true, message: 'Processing punch...', error: false });
+    setPunchStatus({ loading: true, message: 'Processing punch out...', error: false });
     try {
+      // Log the current state before attempting to punch out
+      console.log('Attempting to punch out. Current state:',
+        isCurrentlySignedIn ? 'Signed In' : 'Signed Out',
+        'Last log event:', sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1].event_type : 'None');
+
       const response = await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // Send placeholder data - API validation allows non-empty string
         body: JSON.stringify({ qrCodeData: 'TIMESCAN-LOC:manual_dashboard_punch' }),
       });
+
       const data = await response.json();
+
       if (!response.ok) {
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
-      setPunchStatus({ loading: false, message: `${data.message || 'Punch successful!'} Page will refresh in a moment...`, error: false });
 
-      // Show success message for 1.5 seconds before refreshing
+      console.log('Punch out API response:', data);
+
+      setPunchStatus({
+        loading: false,
+        message: `${data.message || 'Punch out successful!'} Page will refresh in a moment...`,
+        error: false
+      });
+
+      // Show success message for 2 seconds before refreshing to ensure the server has time to process
       setTimeout(() => {
+        console.log('Refreshing page after punch out...');
         // Force a full page reload instead of just a router refresh
-        window.location.reload();
-      }, 1500);
+        window.location.href = '/?t=' + new Date().getTime(); // Add timestamp to prevent caching
+      }, 2000);
     } catch (error: any) {
       console.error("Punch out error:", error);
 
       // Check if the error is about not being signed in
-      const errorMessage = error.message || 'Could not process punch.';
+      const errorMessage = error.message || 'Could not process punch out.';
       const isSignInError = errorMessage.toLowerCase().includes('not currently signed in');
 
       if (isSignInError) {

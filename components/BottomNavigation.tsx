@@ -38,7 +38,6 @@ const allLinks: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'History', href: '/history', icon: History },
     { label: 'Manager', href: '/mgmt', icon: UserCog, exactPath: true },
     { label: 'Reports', href: '/mgmt/reports', icon: BarChart },
-    { label: 'Adjustments', href: '/mgmt/adjustments', icon: FileText },
   ],
   admin: [
     { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
