@@ -50,6 +50,14 @@ export type Database = {
           role: string | null
           updated_at: string | null
           department_id: string | null
+          phone_number: string | null
+          address: string | null
+          date_of_birth: string | null
+          profile_picture_url: string | null
+          health_card_url: string | null
+          emergency_contact_name: string | null
+          emergency_contact_relationship: string | null
+          emergency_contact_phone: string | null
         }
         Insert: {
           created_at?: string
@@ -59,6 +67,14 @@ export type Database = {
           role?: string | null
           updated_at?: string | null
           department_id?: string | null
+          phone_number?: string | null
+          address?: string | null
+          date_of_birth?: string | null
+          profile_picture_url?: string | null
+          health_card_url?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_relationship?: string | null
+          emergency_contact_phone?: string | null
         }
         Update: {
           created_at?: string
@@ -68,6 +84,14 @@ export type Database = {
           role?: string | null
           updated_at?: string | null
           department_id?: string | null
+          phone_number?: string | null
+          address?: string | null
+          date_of_birth?: string | null
+          profile_picture_url?: string | null
+          health_card_url?: string | null
+          emergency_contact_name?: string | null
+          emergency_contact_relationship?: string | null
+          emergency_contact_phone?: string | null
         }
         Relationships: [
           {

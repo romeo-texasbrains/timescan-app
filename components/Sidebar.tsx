@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HomeIcon, QrCodeIcon, ClockIcon, UsersIcon, Cog6ToothIcon, ChartBarIcon, DocumentTextIcon, ArrowLeftOnRectangleIcon, ChevronDoubleLeftIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, QrCodeIcon, ClockIcon, UsersIcon, Cog6ToothIcon, ChartBarIcon, DocumentTextIcon, ArrowLeftOnRectangleIcon, ChevronDoubleLeftIcon, BuildingOfficeIcon, UserIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import { logoutAction } from '@/app/actions/authActions';
 import { clientLogout } from '@/lib/auth/clientLogout';
@@ -19,11 +19,13 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Dashboard', href: '/', icon: HomeIcon },
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
+    { label: 'Profile', href: '/profile', icon: UserIcon },
   ],
   manager: [
     { label: 'Dashboard', href: '/', icon: HomeIcon },
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
+    { label: 'Profile', href: '/profile', icon: UserIcon },
     { label: 'Manager', href: '/mgmt', icon: UsersIcon },
     { label: 'Reports', href: '/mgmt/reports', icon: ChartBarIcon },
   ],
@@ -32,6 +34,7 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Admin', href: '/admin', icon: ChartBarIcon },
     { label: 'Scan', href: '/scan', icon: QrCodeIcon },
     { label: 'History', href: '/history', icon: ClockIcon },
+    { label: 'Profile', href: '/profile', icon: UserIcon },
     { label: 'Employees', href: '/admin/employees', icon: UsersIcon },
     { label: 'Departments', href: '/admin/departments', icon: BuildingOfficeIcon },
     { label: 'Reports', href: '/admin/reports', icon: ChartBarIcon },

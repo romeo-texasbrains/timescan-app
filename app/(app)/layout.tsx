@@ -8,6 +8,7 @@ import { TimezoneProvider } from '@/context/TimezoneContext' // Import the Provi
 import MainContentWrapper from '@/components/MainContentWrapper' // Import the new component
 import LoadingProvider from '@/context/LoadingContext' // Import the Loading Provider
 import ClientErrorHandler from '@/components/ClientErrorHandler' // Import the client error handler wrapper
+import BirthdayProvider from '@/components/birthday/BirthdayProvider' // Import the birthday provider
 
 // Define role type here as well
 type UserRole = 'user' | 'manager' | 'admin';
@@ -103,6 +104,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {/* Wrap MainContentWrapper with TimezoneProvider */}
         <TimezoneProvider initialTimezone={timezone}>
           <MainContentWrapper userEmail={userEmail} timezone={timezone} role={userRole}>
+            {/* Birthday notifications */}
+            <BirthdayProvider />
+
             <div className="mobile-spacing">
               {children}
             </div>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from 'react-hot-toast';
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -40,6 +41,7 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <Toaster position="top-center" reverseOrder={false} />
+        <ServiceWorkerRegistration />
         {children}
       </body>
     </html>

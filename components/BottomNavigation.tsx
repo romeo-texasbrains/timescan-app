@@ -18,7 +18,8 @@ import {
   History,
   Scan,
   LayoutDashboard,
-  UserCog
+  UserCog,
+  User
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -31,11 +32,13 @@ const allLinks: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Home', href: '/', icon: Home, exactPath: true },
     { label: 'Scan', href: '/scan', icon: Scan },
     { label: 'History', href: '/history', icon: History },
+    { label: 'Profile', href: '/profile', icon: User },
   ],
   manager: [
     { label: 'Home', href: '/', icon: Home, exactPath: true },
     { label: 'Scan', href: '/scan', icon: Scan },
     { label: 'History', href: '/history', icon: History },
+    { label: 'Profile', href: '/profile', icon: User },
     { label: 'Manager', href: '/mgmt', icon: UserCog, exactPath: true },
     { label: 'Reports', href: '/mgmt/reports', icon: BarChart },
   ],
@@ -44,6 +47,7 @@ const allLinks: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Admin', href: '/admin', icon: BarChart, exactPath: true },
     { label: 'Scan', href: '/scan', icon: Scan },
     { label: 'History', href: '/history', icon: History },
+    { label: 'Profile', href: '/profile', icon: User },
     { label: 'Employees', href: '/admin/employees', icon: Users },
     { label: 'Departments', href: '/admin/departments', icon: Building },
     { label: 'Reports', href: '/admin/reports', icon: BarChart },
