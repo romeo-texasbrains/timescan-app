@@ -346,14 +346,18 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
   // Fetch data for filters (list of employees)
   const { data: employeesData, error: employeesError } = await supabase
     .from('profiles')
-    .select('id, full_name')
+    .select('id, full_name, profile_picture_url')
     .order('full_name', { ascending: true });
 
   if (employeesError) {
     console.error("Error fetching employees for filter:", employeesError);
     // Handle error appropriately - maybe show an error message and disable filter
   }
-  const employees = employeesData?.map(e => ({ id: e.id, name: e.full_name || 'Unnamed User' })) || [];
+  const employees = employeesData?.map(e => ({
+    id: e.id,
+    name: e.full_name || 'Unnamed User',
+    profilePictureUrl: e.profile_picture_url
+  })) || [];
 
   // --- Get Filter Values ---
   const startDate = awaitedSearchParams?.startDate; // e.g., '2024-07-01'
@@ -553,6 +557,7 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
                           canEdit={true}
                           currentUserId="admin" // Admin can edit all records
                           wasCapped={row.wasCapped}
+                          profilePictureUrl={employees.find(e => e.id === row.employeeId)?.profilePictureUrl}
                         />
                       ))}
                     </div>

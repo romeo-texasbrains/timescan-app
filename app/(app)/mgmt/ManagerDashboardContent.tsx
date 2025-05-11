@@ -8,6 +8,8 @@ import { format, parseISO, isSameDay } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getInitials } from '@/lib/types/profile';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useLoading } from '@/context/LoadingContext';
 import { createClient } from '@/lib/supabase/client';
@@ -448,41 +450,51 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               Overview of your team's attendance status
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="text-sm text-muted-foreground">
-              {formatInTimeZone(today, isRealTimeEnabled ? timezoneState : timezone, 'EEEE, MMMM d, yyyy')}
-              <span className="ml-2 text-xs text-primary">({(isRealTimeEnabled ? timezoneState : timezone).replace(/_/g, ' ')})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleManualRefresh}
-                className="inline-flex items-center px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-sm"
-                disabled={!isClient}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+          <div className="flex items-center gap-4">
+            <Link href="/mgmt/profiles">
+              <Button variant="outline" className="bg-card hover:bg-primary/10 border-primary/30 text-primary transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                 </svg>
-                Refresh
-              </button>
-              <button
-                onClick={toggleRealTimeUpdates}
-                className={`inline-flex items-center px-3 py-1.5 rounded-lg transition-colors text-sm ${
-                  isRealTimeEnabled
-                    ? 'bg-green-500/10 hover:bg-green-500/20 text-green-600'
-                    : 'bg-red-500/10 hover:bg-red-500/20 text-red-600'
-                }`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                </svg>
-                {isRealTimeEnabled ? 'Real-time: On' : 'Real-time: Off'}
-              </button>
-            </div>
-            {lastUpdateTime && (
-              <div className="text-xs text-muted-foreground">
-                Last updated: {formatInTimeZone(lastUpdateTime, isRealTimeEnabled ? timezoneState : timezone, 'h:mm:ss a')}
+                Team Profiles
+              </Button>
+            </Link>
+            <div className="flex flex-col items-end gap-2">
+              <div className="text-sm text-muted-foreground">
+                {formatInTimeZone(today, isRealTimeEnabled ? timezoneState : timezone, 'EEEE, MMMM d, yyyy')}
+                <span className="ml-2 text-xs text-primary">({(isRealTimeEnabled ? timezoneState : timezone).replace(/_/g, ' ')})</span>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleManualRefresh}
+                  className="inline-flex items-center px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-sm"
+                  disabled={!isClient}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                  </svg>
+                  Refresh
+                </button>
+                <button
+                  onClick={toggleRealTimeUpdates}
+                  className={`inline-flex items-center px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                    isRealTimeEnabled
+                      ? 'bg-green-500/10 hover:bg-green-500/20 text-green-600'
+                      : 'bg-red-500/10 hover:bg-red-500/20 text-red-600'
+                  }`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                  {isRealTimeEnabled ? 'Real-time: On' : 'Real-time: Off'}
+                </button>
+              </div>
+              {lastUpdateTime && (
+                <div className="text-xs text-muted-foreground">
+                  Last updated: {formatInTimeZone(lastUpdateTime, isRealTimeEnabled ? timezoneState : timezone, 'h:mm:ss a')}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -629,7 +641,30 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
 
                   return (
                     <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
-                      <td className="px-4 py-3 font-medium">{employee.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center">
+                          {/* Find the full employee data to get profile picture */}
+                          {(() => {
+                            const employeeData = (isRealTimeEnabled ? employeesInDepartmentState : employeesInDepartment)
+                              .find(emp => emp && emp.id === employee.id);
+
+                            return (
+                              <Avatar className="h-8 w-8 mr-3 border border-primary/20">
+                                {employeeData && employeeData.profile_picture_url ? (
+                                  <AvatarImage src={employeeData.profile_picture_url} alt={employee.name || ''} />
+                                ) : (
+                                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                    {employee.name ? getInitials(employee.name) : '?'}
+                                  </AvatarFallback>
+                                )}
+                              </Avatar>
+                            );
+                          })()}
+                          <Link href={`/mgmt/profiles/${employee.id}`} className="font-medium hover:text-primary hover:underline transition-colors">
+                            {employee.name}
+                          </Link>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{departmentName}</td>
                       <td className="px-4 py-3">
                         <Badge variant={
@@ -753,7 +788,22 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
 
                       return (
                         <tr key={log.id} className="border-t border-border hover:bg-muted/20">
-                          <td className="px-4 py-3 font-medium">{employeeName}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center">
+                              <Avatar className="h-8 w-8 mr-3 border border-primary/20">
+                                {employee && employee.profile_picture_url ? (
+                                  <AvatarImage src={employee.profile_picture_url} alt={employeeName || ''} />
+                                ) : (
+                                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                    {employeeName ? getInitials(employeeName) : '?'}
+                                  </AvatarFallback>
+                                )}
+                              </Avatar>
+                              <Link href={`/mgmt/profiles/${log.user_id}`} className="font-medium hover:text-primary hover:underline transition-colors">
+                                {employeeName}
+                              </Link>
+                            </div>
+                          </td>
                           <td className="px-4 py-3">
                             <Badge variant={eventVariant}>
                               {eventType}

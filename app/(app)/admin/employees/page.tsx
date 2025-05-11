@@ -19,6 +19,8 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination" // Assuming shadcn pagination exists/is added
 import { Button } from '@/components/ui/button'; // Assuming shadcn button exists/is added
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getInitials } from '@/lib/types/profile';
 import clsx from 'clsx'; // Correct import for clsx
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
@@ -97,6 +99,15 @@ export default async function EmployeesPage({ searchParams }: { searchParams?: {
             Back
           </Link>
 
+          <Link href="/admin/employees/profiles">
+            <Button variant="outline" className="bg-card hover:bg-primary/10 border-primary/30 text-primary transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+              </svg>
+              View Profiles
+            </Button>
+          </Link>
+
           <Link href="/admin/employees/new">
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground w-full sm:w-auto shadow-md transition-all duration-300 hover:shadow-lg">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -138,13 +149,19 @@ export default async function EmployeesPage({ searchParams }: { searchParams?: {
                   >
                     <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center">
-                          <span className="text-primary font-semibold text-sm">
-                            {profile.full_name?.split(' ').map(n => n[0]).join('') || '?'}
-                          </span>
-                        </div>
+                        <Avatar className="h-10 w-10 border border-primary/20">
+                          {profile.profile_picture_url ? (
+                            <AvatarImage src={profile.profile_picture_url} alt={profile.full_name || ''} />
+                          ) : (
+                            <AvatarFallback className="bg-primary/10 text-primary">
+                              {profile.full_name ? getInitials(profile.full_name) : '?'}
+                            </AvatarFallback>
+                          )}
+                        </Avatar>
                         <div className="ml-4">
-                          <div className="text-sm font-medium text-foreground">{profile.full_name || '-'}</div>
+                          <Link href={`/admin/employees/profiles/${profile.id}`} className="hover:text-primary hover:underline transition-colors">
+                            <div className="text-sm font-medium text-foreground">{profile.full_name || '-'}</div>
+                          </Link>
                         </div>
                       </div>
                     </TableCell>
@@ -179,7 +196,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams?: {
                       <div className="text-xs text-muted-foreground">{format(new Date(profile.created_at), 'h:mm a')}</div>
                     </TableCell>
                     <TableCell className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
-                      <Link href={`/admin/employees/${profile.id}`}>
+                      <Link href={`/admin/employees/profiles/${profile.id}`}>
                         <Button
                           variant="outline"
                           size="sm"

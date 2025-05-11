@@ -110,7 +110,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
   // For managers, only show employees in their department
   let employeeQuery = supabase
     .from('profiles')
-    .select('id, full_name, department_id, role')
+    .select('id, full_name, department_id, role, profile_picture_url')
     .order('full_name');
 
   // If user is a manager (not admin), filter by department
@@ -128,7 +128,8 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
     id: e.id,
     name: e.full_name || 'Unnamed User',
     department_id: e.department_id,
-    role: e.role
+    role: e.role,
+    profilePictureUrl: e.profile_picture_url
   })) || [];
 
   // --- Get Filter Values ---
@@ -500,6 +501,7 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
                           canEdit={canEdit}
                           currentUserId={currentUserId}
                           wasCapped={row.wasCapped}
+                          profilePictureUrl={employees.find(e => e.id === row.employeeId)?.profilePictureUrl}
                         />
                       );
                     })}

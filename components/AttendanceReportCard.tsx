@@ -3,11 +3,12 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/card';
 import { formatInTimeZone } from 'date-fns-tz';
 import { parseISO } from 'date-fns';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { formatDuration, MAX_SHIFT_DURATION_HOURS } from '@/lib/shift-utils';
 import { AlertCircle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSupabase } from '@/components/providers/supabase-provider';
 
 type EntryType = {
   in: string | null;
@@ -26,6 +27,7 @@ interface AttendanceReportCardProps {
   canEdit?: boolean;
   currentUserId?: string;
   wasCapped?: boolean;
+  profilePictureUrl?: string | null;
 }
 
 // We're now using the formatDuration function from lib/shift-utils.ts
@@ -48,7 +50,8 @@ export default function AttendanceReportCard({
   date,
   canEdit = false,
   currentUserId,
-  wasCapped = false
+  wasCapped = false,
+  profilePictureUrl = null
 }: AttendanceReportCardProps) {
   // Format the total hours
   const formattedHours = formatDuration(totalHours);
@@ -83,10 +86,14 @@ export default function AttendanceReportCard({
       <div className="flex items-start">
         {/* Avatar/Initials */}
         <div className="mr-4">
-          <Avatar className="h-16 w-16 bg-primary/10 text-primary">
-            <AvatarFallback className="text-lg font-semibold">
-              {getInitials(employeeName)}
-            </AvatarFallback>
+          <Avatar className="h-16 w-16 border-2 border-primary/20">
+            {profilePictureUrl ? (
+              <AvatarImage src={profilePictureUrl} alt={employeeName} />
+            ) : (
+              <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
+                {getInitials(employeeName)}
+              </AvatarFallback>
+            )}
           </Avatar>
         </div>
 
