@@ -15,6 +15,7 @@ import { useLoading } from '@/context/LoadingContext';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import ChangeStatusDropdown from '@/components/ChangeStatusDropdown';
+import { determineUserStatus, getLastActivity, getStatusLabel, eventTypeToStatus } from '@/lib/utils/statusDetermination';
 
 // Type for employee status
 type EmployeeStatus = {
@@ -188,194 +189,38 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
         }
       }
 
-      // Fetch today's logs for team members for processing employee statuses
-      // Use the same todayStr variable that was declared above
-      const { data: todayLogs } = await supabase
-        .from('attendance_logs')
-        .select('id, user_id, event_type, timestamp')
-        .in('user_id', teamMemberIds)
-        .gte('timestamp', `${todayStr}T00:00:00`)
-        .lte('timestamp', `${todayStr}T23:59:59`)
-        .order('timestamp', { ascending: true });
+      // Fetch team metrics from the API
+      const departmentId = managerProfileState?.department_id || '';
+      const response = await fetch(`/api/attendance/team-metrics?departmentId=${departmentId}&timezone=${encodeURIComponent(timezoneState)}`);
 
-      if (todayLogs && employeesInDepartmentState.length > 0) {
-        // Process employee statuses (similar to server-side logic)
-        const newEmployeeStatuses: EmployeeStatus[] = [];
-        const activeEmployeeIds = new Set<string>();
+      if (!response.ok) {
+        console.error(`Failed to fetch team metrics: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch team metrics: ${response.statusText}`);
+      }
 
-        // Create maps to track active periods and break periods
-        const employeeActivePeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-        const employeeBreakPeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
+      const { employees } = await response.json();
 
-        // Create a map of the latest status for each employee
-        const latestStatusMap = new Map<string, { status: 'signed_in' | 'signed_out' | 'on_break', timestamp: string }>();
+      if (employees && employees.length > 0) {
+        // Convert API metrics to employee statuses using our utility functions
+        const newEmployeeStatuses: EmployeeStatus[] = employees.map(employee => {
+          // Get the status directly from the API
+          const status = employee.isOnBreak ? 'on_break' : employee.isActive ? 'signed_in' : 'signed_out';
 
-        // Filter logs to only include team members
-        const teamMemberLogsOnly = todayLogs.filter(log => teamMemberIds.includes(log.user_id));
+          // Get the last activity status using our utility function
+          const lastActivityStatus = employee.lastActivity ?
+            eventTypeToStatus(employee.lastActivity.type) : 'signed_out';
 
-        // Process logs chronologically
-        teamMemberLogsOnly.forEach(log => {
-          const timestamp = parseISO(log.timestamp);
-          // Convert to the admin-set timezone for consistent calculations
-          const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezoneState, 'yyyy-MM-dd HH:mm:ss'));
-          const userId = log.user_id;
-
-          // For overnight shifts, we don't filter by day
-          // This ensures that shifts that cross midnight are properly calculated
-
-          // Update latest status
-          let status: 'signed_in' | 'signed_out' | 'on_break' = 'signed_out';
-
-          if (log.event_type === 'signin') {
-            // Update status and track active employees
-            status = 'signed_in';
-            activeEmployeeIds.add(userId);
-
-            // Start tracking active time - handle overnight shifts
-            if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
-            } else if (!employeeActivePeriods.get(userId)!.start) {
-              employeeActivePeriods.get(userId)!.start = timestampInTimezone;
-            }
-          }
-          else if (log.event_type === 'signout') {
-            // Update status
-            status = 'signed_out';
-
-            // End active period if exists - handle overnight shifts
-            if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-              const activePeriod = employeeActivePeriods.get(userId)!;
-              activePeriod.periods.push({
-                start: activePeriod.start,
-                end: timestampInTimezone
-              });
-              activePeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // End break period if exists
-            if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-              const breakPeriod = employeeBreakPeriods.get(userId)!;
-              breakPeriod.periods.push({
-                start: breakPeriod.start,
-                end: timestampInTimezone
-              });
-              breakPeriod.start = null as unknown as Date; // Clear start time
-            }
-          }
-          else if (log.event_type === 'break_start') {
-            // Update status and track active employees
-            status = 'on_break';
-            activeEmployeeIds.add(userId);
-
-            // End active period if exists
-            if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-              const activePeriod = employeeActivePeriods.get(userId)!;
-              activePeriod.periods.push({
-                start: activePeriod.start,
-                end: timestampInTimezone
-              });
-              activePeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // Start break period
-            if (!employeeBreakPeriods.has(userId)) {
-              employeeBreakPeriods.set(userId, { start: timestampInTimezone, periods: [] });
-            } else {
-              employeeBreakPeriods.get(userId)!.start = timestampInTimezone;
-            }
-          }
-          else if (log.event_type === 'break_end') {
-            // Update status and track active employees
-            status = 'signed_in';
-            activeEmployeeIds.add(userId);
-
-            // End break period if exists
-            if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-              const breakPeriod = employeeBreakPeriods.get(userId)!;
-              breakPeriod.periods.push({
-                start: breakPeriod.start,
-                end: timestampInTimezone
-              });
-              breakPeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // Start active period
-            if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
-            } else {
-              employeeActivePeriods.get(userId)!.start = timestampInTimezone;
-            }
-          }
-
-          // Update latest status
-          if (!latestStatusMap.has(userId) ||
-              new Date(formatInTimeZone(parseISO(latestStatusMap.get(userId)!.timestamp), timezoneState, 'yyyy-MM-dd HH:mm:ss')) < timestampInTimezone) {
-            latestStatusMap.set(userId, { status, timestamp: log.timestamp });
-          }
-        });
-
-        // Close any open periods with current time for employees still active
-        const now = new Date();
-        // Convert current time to the admin-set timezone for consistent calculations
-        const nowInTimezone = new Date(formatInTimeZone(now, timezoneState, 'yyyy-MM-dd HH:mm:ss'));
-
-        employeeActivePeriods.forEach((data, userId) => {
-          if (data.start) {
-            data.periods.push({ start: data.start, end: nowInTimezone });
-          }
-        });
-
-        employeeBreakPeriods.forEach((data, userId) => {
-          if (data.start) {
-            data.periods.push({ start: data.start, end: nowInTimezone });
-          }
-        });
-
-        // Calculate total times for each employee
-        const calculateTotalMinutes = (periods: { start: Date, end: Date }[]): number => {
-          return periods.reduce((total, period) => {
-            const minutes = (period.end.getTime() - period.start.getTime()) / (1000 * 60);
-            return total + minutes;
-          }, 0);
-        };
-
-        // Create employee status objects
-        employeesInDepartmentState.forEach(employee => {
-          // Skip if employee is undefined or doesn't have an id
-          if (!employee || !employee.id) return;
-
-          const latestStatus = latestStatusMap.get(employee.id);
-          // Calculate active time, ensure it's not negative
-          const totalActiveTime = employeeActivePeriods.has(employee.id)
-            ? Math.max(0, calculateTotalMinutes(employeeActivePeriods.get(employee.id)!.periods))
-            : 0;
-
-          // Calculate break time, ensure it's not negative
-          const totalBreakTime = employeeBreakPeriods.has(employee.id)
-            ? Math.max(0, calculateTotalMinutes(employeeBreakPeriods.get(employee.id)!.periods))
-            : 0;
-
-          if (latestStatus) {
-            newEmployeeStatuses.push({
-              id: employee.id,
-              name: employee.full_name || 'Unnamed',
-              status: latestStatus.status,
-              lastActivity: getActivityLabel(latestStatus.status),
-              lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezoneState, 'h:mm a'),
-              totalActiveTime: Math.round(totalActiveTime),
-              totalBreakTime: Math.round(totalBreakTime)
-            });
-          } else {
-            newEmployeeStatuses.push({
-              id: employee.id,
-              name: employee.full_name || 'Unnamed',
-              status: 'signed_out',
-              lastActivity: 'No activity recorded',
-              lastActivityTime: '',
-              totalActiveTime: 0,
-              totalBreakTime: 0
-            });
-          }
+          return {
+            id: employee.userId,
+            name: employee.fullName || 'Unnamed',
+            status: status,
+            lastActivity: employee.lastActivity ?
+              getStatusLabel(lastActivityStatus) : 'No activity recorded',
+            lastActivityTime: employee.lastActivity ?
+              formatInTimeZone(parseISO(employee.lastActivity.timestamp), timezoneState, 'h:mm a') : '',
+            totalActiveTime: employee.workTime, // Keep as seconds to match client-side
+            totalBreakTime: employee.breakTime  // Keep as seconds to match client-side
+          };
         });
 
         // Sort employee statuses
@@ -390,7 +235,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
 
         // Update state
         setEmployeeStatusesState(newEmployeeStatuses);
-        setActiveEmployeeCountState(activeEmployeeIds.size);
+        setActiveEmployeeCountState(newEmployeeStatuses.filter(emp => emp.status !== 'signed_out').length);
       }
     } catch (error) {
       console.error('Error refreshing dashboard data:', error);
@@ -415,21 +260,14 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
     toast.info(isRealTimeEnabled ? 'Real-time updates disabled' : 'Real-time updates enabled');
   };
 
-  // Helper function to get activity label
-  function getActivityLabel(status: 'signed_in' | 'signed_out' | 'on_break'): string {
-    switch (status) {
-      case 'signed_in': return 'Signed In';
-      case 'signed_out': return 'Signed Out';
-      case 'on_break': return 'On Break';
-    }
-  }
+  // We're now using the imported getStatusLabel function from our utility
 
-  // Helper function to format minutes into hours and minutes
-  function formatMinutes(minutes: number | undefined): string {
-    if (!minutes) return '0m';
+  // Helper function to format seconds into hours and minutes
+  function formatSeconds(seconds: number | undefined): string {
+    if (!seconds) return '0m';
 
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
 
     if (hours === 0) return `${mins}m`;
     if (mins === 0) return `${hours}h`;
@@ -677,12 +515,12 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
-                          {formatMinutes(employee.totalActiveTime)}
+                          {formatSeconds(employee.totalActiveTime)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
-                          {formatMinutes(employee.totalBreakTime)}
+                          {formatSeconds(employee.totalBreakTime)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{employee.lastActivity}</td>

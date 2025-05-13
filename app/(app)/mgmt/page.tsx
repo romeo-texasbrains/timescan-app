@@ -5,6 +5,7 @@ import { Suspense } from 'react'
 import ClientWrapper from './ClientWrapper'
 import { format, parseISO, isSameDay } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
+import { calculateUserAttendanceMetrics } from '@/lib/utils/metrics-calculator'
 
 // Type for employee status
 type EmployeeStatus = {
@@ -21,8 +22,17 @@ type EmployeeStatus = {
 async function getManagerDashboardData(supabase, user, managerProfile) {
   // Get current date for reference
   const today = new Date()
-  const todayStr = format(today, 'yyyy-MM-dd')
-  // console.log(`Current date: ${todayStr} (not using for filtering)`)
+
+  // Initialize all variables at the beginning to avoid reference errors
+  let departmentUserRoles = [];
+  let departmentUserRolesError = null;
+  let departmentProfiles = [];
+  let departmentProfilesError = null;
+  let teamMembers = [];
+  let todayLogsCount = 0;
+  let recentLogs = [];
+  let employeeStatuses = [];
+  let activeEmployeeCount = 0;
 
   // --- Fetch Timezone Setting ---
   let timezone = 'UTC'; // Default timezone
@@ -55,8 +65,6 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     console.error('Error fetching manager department profile:', managerDeptProfileError)
   }
 
-  // Check if department_id is null - if so, we'll show all employees
-
   // Get the manager's full profile
   const { data: managerFullProfile, error: managerFullProfileError } = await supabase
     .from('profiles')
@@ -68,14 +76,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     console.error('Error fetching manager full profile:', managerFullProfileError)
   }
 
-  // Query for team members in the manager's department using two approaches
-  let teamMembers = [];
-  let teamMembersError = null;
-
-  let departmentUserRoles = [];
-  let departmentUserRolesError = null;
-  let departmentProfiles = [];
-  let departmentProfilesError = null;
+  // Variables already initialized at the beginning of the function
 
   if (managerDeptProfile?.department_id) {
     // Approach 1: Get employees from user_roles table
@@ -193,8 +194,19 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     departmentMap.set(dept.id, dept.name)
   })
 
-  // Variable to store the count of today's logs
-  let todayLogsCount = 0;
+  // Get today's logs count
+  const todayStr = format(today, 'yyyy-MM-dd');
+  const { count: todayCount, error: todayCountError } = await supabase
+    .from('attendance_logs')
+    .select('*', { count: 'exact', head: true })
+    .gte('timestamp', `${todayStr}T00:00:00`)
+    .lte('timestamp', `${todayStr}T23:59:59`);
+
+  if (todayCountError) {
+    console.error('Error fetching today\'s logs count:', todayCountError);
+  } else if (todayCount !== null) {
+    todayLogsCount = todayCount;
+  }
 
   // Include all employees in the department, including the manager
   // Use a Set to ensure unique employee IDs
@@ -214,42 +226,10 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   // Get team member IDs
   const teamMemberIds = employeesInDepartment.map(emp => emp.id);
 
-  // Get all attendance logs for team members
-  let todayLogs = [];
-
-  // Get today's logs for team members
-  // console.log("Fetching today's logs for team members");
-  // console.log(`Team member IDs: ${teamMemberIds.join(', ')}`);
-
-  // Then get today's logs for these team members
-  const { data: allLogs, error: logsError } = await supabase
-    .from('attendance_logs')
-    .select('id, user_id, event_type, timestamp')
-    .in('user_id', teamMemberIds)
-    .gte('timestamp', `${todayStr}T00:00:00`)
-    .lte('timestamp', `${todayStr}T23:59:59`)
-    .order('timestamp', { ascending: true });  // Changed to ascending for time calculations
-
-  // Set todayLogsCount to the total number of logs
-  if (logsError) {
-    console.error('Error fetching logs:', logsError);
-    todayLogsCount = 0;
-  } else {
-    todayLogs = allLogs || [];
-    todayLogsCount = todayLogs.length;
-    // console.log(`Fetched ${todayLogs.length} logs for team members`);
-
-    // Log the first few logs for debugging
-    // if (todayLogs.length > 0) {
-    //   console.log('Logs sample:');
-    //   todayLogs.slice(0, 5).forEach(log => {
-    //     console.log(`  ${log.user_id}: ${log.event_type} at ${log.timestamp}`);
-    //   });
-    // }
-  }
+  // We're now using the API to get metrics, so we don't need to fetch logs directly
 
   // Get recent activity logs (last 20 entries) for team members
-  let recentLogs = [];
+  // recentLogs already initialized at the beginning of the function
 
   // First try to get logs for team members only
   if (teamMemberIds.length > 0) {
@@ -317,216 +297,63 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     }
   }
 
-  // Process employee status
-  const employeeStatuses: EmployeeStatus[] = [];
-  const activeEmployeeIds = new Set<string>();
+  // Process employee status (variables already initialized at the beginning of the function)
+  // Explicitly set the type for employeeStatuses
+  employeeStatuses = [] as EmployeeStatus[];
 
-  if (employeesInDepartment && todayLogs) {
-    // Create a map of the latest status for each employee
-    const latestStatusMap = new Map<string, { status: 'signed_in' | 'signed_out' | 'on_break', timestamp: string }>();
+  if (employeesInDepartment) {
+    // Calculate metrics directly for each employee
+    try {
+      // Get today's attendance logs only - use the same todayStr as defined earlier
+      const { data: allLogs, error: allLogsError } = await supabase
+        .from('attendance_logs')
+        .select('*')
+        .gte('timestamp', `${todayStr}T00:00:00`)
+        .lte('timestamp', `${todayStr}T23:59:59`)
+        .order('timestamp', { ascending: true });
 
-    // Create maps to track active periods and break periods
-    const employeeActivePeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-    const employeeBreakPeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-
-    // For debugging, log all team member IDs
-    // console.log(`Team member IDs (${teamMemberIds.length}): ${teamMemberIds.join(', ')}`);
-
-    // For debugging, log all unique user IDs in logs
-    const uniqueLogUserIds = [...new Set(todayLogs.map(log => log.user_id))];
-    // console.log(`Unique log user IDs (${uniqueLogUserIds.length}): ${uniqueLogUserIds.join(', ')}`);
-
-    // Check for overlap between team member IDs and log user IDs
-    const overlap = teamMemberIds.filter(id => uniqueLogUserIds.includes(id));
-    // console.log(`Overlap between team members and logs (${overlap.length}): ${overlap.join(', ')}`);
-
-    // Filter logs to only include team members
-    const teamMemberLogsOnly = todayLogs.filter(log => {
-      const isTeamMember = teamMemberIds.includes(log.user_id);
-      // if (isTeamMember) {
-      //   console.log(`Including log for team member ${log.user_id}, event: ${log.event_type}, time: ${log.timestamp}`);
-      // }
-      return isTeamMember;
-    });
-
-    // console.log(`Filtered ${todayLogs.length} logs down to ${teamMemberLogsOnly.length} team member logs`);
-
-    // Process logs chronologically to calculate active and break times
-    teamMemberLogsOnly.forEach(log => {
-      // Parse timestamp with timezone handling
-      const timestamp = parseISO(log.timestamp);
-      // Convert to the admin-set timezone for consistent calculations
-      const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
-      const userId = log.user_id;
-
-      // For debugging, log all logs we're processing
-      // console.log(`Processing log for ${userId}: ${log.event_type} at ${format(timestamp, 'yyyy-MM-dd HH:mm:ss')}`);
-
-      // For overnight shifts, we don't filter by day
-      // This ensures that shifts that cross midnight are properly calculated
-
-      // Update latest status
-      let status: 'signed_in' | 'signed_out' | 'on_break' = 'signed_out';
-
-      if (log.event_type === 'signin') {
-        // Update status and track active employees
-        status = 'signed_in';
-        activeEmployeeIds.add(userId);
-
-        // Start tracking active time - handle overnight shifts
-        if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
-        } else if (!employeeActivePeriods.get(userId)!.start) {
-          employeeActivePeriods.get(userId)!.start = timestampInTimezone;
-        }
-      }
-      else if (log.event_type === 'signout') {
-        // Update status
-        status = 'signed_out';
-
-        // End active period if exists - handle overnight shifts
-        if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-          const activePeriod = employeeActivePeriods.get(userId)!;
-          activePeriod.periods.push({
-            start: activePeriod.start,
-            end: timestampInTimezone
-          });
-          activePeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // End break period if exists
-        if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-          const breakPeriod = employeeBreakPeriods.get(userId)!;
-          breakPeriod.periods.push({
-            start: breakPeriod.start,
-            end: timestampInTimezone
-          });
-          breakPeriod.start = null as unknown as Date; // Clear start time
-        }
-      }
-      else if (log.event_type === 'break_start') {
-        // Update status and track active employees
-        status = 'on_break';
-        activeEmployeeIds.add(userId);
-
-        // End active period if exists
-        if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-          const activePeriod = employeeActivePeriods.get(userId)!;
-          activePeriod.periods.push({
-            start: activePeriod.start,
-            end: timestampInTimezone
-          });
-          activePeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // Start break period
-        if (!employeeBreakPeriods.has(userId)) {
-          employeeBreakPeriods.set(userId, { start: timestampInTimezone, periods: [] });
-        } else {
-          employeeBreakPeriods.get(userId)!.start = timestampInTimezone;
-        }
-      }
-      else if (log.event_type === 'break_end') {
-        // Update status and track active employees
-        status = 'signed_in';
-        activeEmployeeIds.add(userId);
-
-        // End break period if exists
-        if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-          const breakPeriod = employeeBreakPeriods.get(userId)!;
-          breakPeriod.periods.push({
-            start: breakPeriod.start,
-            end: timestampInTimezone
-          });
-          breakPeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // Start active period
-        if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestampInTimezone, periods: [] });
-        } else {
-          employeeActivePeriods.get(userId)!.start = timestampInTimezone;
-        }
+      if (allLogsError) {
+        throw new Error(`Failed to fetch attendance logs: ${allLogsError.message}`);
       }
 
-      // Update latest status
-      if (!latestStatusMap.has(userId) ||
-          new Date(formatInTimeZone(parseISO(latestStatusMap.get(userId)!.timestamp), timezone, 'yyyy-MM-dd HH:mm:ss')) < timestampInTimezone) {
-        latestStatusMap.set(userId, { status, timestamp: log.timestamp });
-      }
-    });
+      // Group logs by user ID
+      const logsByUser = {};
+      allLogs?.forEach(log => {
+        if (!logsByUser[log.user_id]) {
+          logsByUser[log.user_id] = [];
+        }
+        logsByUser[log.user_id].push(log);
+      });
 
-    // Close any open periods with current time for employees still active
-    const now = new Date();
-    // Convert current time to the admin-set timezone for consistent calculations
-    const nowInTimezone = new Date(formatInTimeZone(now, timezone, 'yyyy-MM-dd HH:mm:ss'));
+      // Calculate metrics for each employee
+      employeeStatuses = employeesInDepartment.map(employee => {
+        const userLogs = logsByUser[employee.id] || [];
+        const metrics = calculateUserAttendanceMetrics(userLogs, timezone, employee.id);
 
-    employeeActivePeriods.forEach((data, userId) => {
-      if (data.start) {
-        data.periods.push({ start: data.start, end: nowInTimezone });
-      }
-    });
-
-    employeeBreakPeriods.forEach((data, userId) => {
-      if (data.start) {
-        data.periods.push({ start: data.start, end: nowInTimezone });
-      }
-    });
-
-    // Calculate total times for each employee
-    const calculateTotalMinutes = (periods: { start: Date, end: Date }[]): number => {
-      return periods.reduce((total, period) => {
-        const minutes = (period.end.getTime() - period.start.getTime()) / (1000 * 60);
-        return total + minutes;
-      }, 0);
-    };
-
-    // Create employee status objects
-    employeesInDepartment.forEach(employee => {
-      // Skip if employee is undefined or doesn't have an id
-      if (!employee || !employee.id) return;
-
-      // console.log(`Processing employee: ${employee.full_name} (${employee.id})`);
-
-      const latestStatus = latestStatusMap.get(employee.id);
-      // console.log(`  Latest status: ${latestStatus ? latestStatus.status : 'none'}`);
-
-      // Calculate active time, ensure it's not negative
-      const totalActiveTime = employeeActivePeriods.has(employee.id)
-        ? Math.max(0, calculateTotalMinutes(employeeActivePeriods.get(employee.id)!.periods))
-        : 0;
-
-      // Calculate break time, ensure it's not negative
-      const totalBreakTime = employeeBreakPeriods.has(employee.id)
-        ? Math.max(0, calculateTotalMinutes(employeeBreakPeriods.get(employee.id)!.periods))
-        : 0;
-
-      // console.log(`  Active time: ${totalActiveTime} minutes, Break time: ${totalBreakTime} minutes`);
-
-      if (latestStatus) {
-        // console.log(`  Adding employee with status: ${latestStatus.status}`);
-        employeeStatuses.push({
+        return {
           id: employee.id,
           name: employee.full_name || 'Unnamed',
-          status: latestStatus.status,
-          lastActivity: getActivityLabel(latestStatus.status),
-          lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezone, 'h:mm a'),
-          totalActiveTime: Math.round(totalActiveTime),
-          totalBreakTime: Math.round(totalBreakTime)
-        });
-      } else {
-        // console.log(`  Adding employee as signed out`);
-        employeeStatuses.push({
-          id: employee.id,
-          name: employee.full_name || 'Unnamed',
-          status: 'signed_out',
-          lastActivity: 'No activity recorded',
-          lastActivityTime: '',
-          totalActiveTime: 0,
-          totalBreakTime: 0
-        });
-      }
-    });
+          status: metrics.isOnBreak ? 'on_break' : metrics.isActive ? 'signed_in' : 'signed_out',
+          lastActivity: metrics.lastActivity ?
+            (metrics.lastActivity.type === 'break_start' ? 'On Break' :
+             metrics.lastActivity.type === 'signin' ? 'Signed In' :
+             metrics.lastActivity.type === 'break_end' ? 'Signed In' : 'Signed Out')
+            : 'No activity recorded',
+          lastActivityTime: metrics.lastActivity ?
+            formatInTimeZone(parseISO(metrics.lastActivity.timestamp), timezone, 'h:mm a') : '',
+          totalActiveTime: metrics.workTime, // Keep as seconds to match client-side
+          totalBreakTime: metrics.breakTime  // Keep as seconds to match client-side
+        };
+      });
+
+        // Count active employees
+        activeEmployeeCount = employeeStatuses.filter(emp => emp.status !== 'signed_out').length;
+    } catch (error) {
+      console.error('Error fetching team metrics:', error);
+      // Fallback to empty arrays if API fails
+      employeeStatuses = [];
+      activeEmployeeCount = 0;
+    }
   }
 
   // Sort employee statuses: active first, then by name
@@ -539,7 +366,7 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     return a.name.localeCompare(b.name);
   });
 
-  const activeEmployeeCount = activeEmployeeIds.size;
+  // activeEmployeeCount is now set in the API fetch section
 
 
 

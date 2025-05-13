@@ -44,6 +44,13 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - serve from cache if available
 self.addEventListener('fetch', (event) => {
+  // Skip non-GET requests and requests from chrome-extension:// protocol
+  if (event.request.method !== 'GET' ||
+      event.request.url.startsWith('chrome-extension://') ||
+      event.request.url.includes('/.well-known/')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -51,27 +58,39 @@ self.addEventListener('fetch', (event) => {
         if (response) {
           return response;
         }
-        
+
         // Clone the request
         const fetchRequest = event.request.clone();
-        
+
         // Make network request
         return fetch(fetchRequest).then((response) => {
           // Check if valid response
           if (!response || response.status !== 200 || response.type !== 'basic') {
             return response;
           }
-          
-          // Clone the response
-          const responseToCache = response.clone();
-          
-          // Cache the response
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          
+
+          try {
+            // Clone the response
+            const responseToCache = response.clone();
+
+            // Cache the response
+            caches.open(CACHE_NAME)
+              .then((cache) => {
+                try {
+                  cache.put(event.request, responseToCache);
+                } catch (error) {
+                  console.error('Error caching response:', error);
+                }
+              });
+          } catch (error) {
+            console.error('Error handling fetch response:', error);
+          }
+
           return response;
+        }).catch(error => {
+          console.error('Fetch failed:', error);
+          // Return a fallback response or just let the error propagate
+          throw error;
         });
       })
   );
@@ -80,16 +99,16 @@ self.addEventListener('fetch', (event) => {
 // Push event - handle push notifications
 self.addEventListener('push', (event) => {
   console.log('Push notification received:', event);
-  
+
   if (!event.data) {
     console.log('No data in push event');
     return;
   }
-  
+
   try {
     // Parse the notification data
     const data = event.data.json();
-    
+
     // Show notification
     const notificationPromise = self.registration.showNotification(
       data.title || 'TimeScan Notification',
@@ -102,11 +121,11 @@ self.addEventListener('push', (event) => {
         actions: data.actions || [],
       }
     );
-    
+
     event.waitUntil(notificationPromise);
   } catch (error) {
     console.error('Error handling push notification:', error);
-    
+
     // Show a generic notification if parsing fails
     const notificationPromise = self.registration.showNotification(
       'TimeScan Notification',
@@ -117,7 +136,7 @@ self.addEventListener('push', (event) => {
         vibrate: [100, 50, 100],
       }
     );
-    
+
     event.waitUntil(notificationPromise);
   }
 });
@@ -125,9 +144,9 @@ self.addEventListener('push', (event) => {
 // Notification click event
 self.addEventListener('notificationclick', (event) => {
   console.log('Notification clicked:', event);
-  
+
   event.notification.close();
-  
+
   // Handle notification click - open the app
   event.waitUntil(
     clients.matchAll({ type: 'window' })
@@ -138,7 +157,7 @@ self.addEventListener('notificationclick', (event) => {
             return client.focus();
           }
         }
-        
+
         // Otherwise, open a new window
         if (clients.openWindow) {
           return clients.openWindow('/');

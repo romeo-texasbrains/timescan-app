@@ -17,6 +17,20 @@ interface ClientWrapperProps {
 }
 
 const ClientWrapper: React.FC<ClientWrapperProps> = ({ initialData }) => {
+  // Debug: Log the total active time from server
+  if (initialData && initialData.employeeStatuses) {
+    const totalActiveTime = initialData.employeeStatuses.reduce((total, emp) => total + emp.totalActiveTime, 0);
+    console.log('Manager dashboard - Server-side total active time:', totalActiveTime, 'seconds');
+    console.log('Manager dashboard - Server-side total active time formatted:',
+      Math.floor(totalActiveTime / 3600) + 'h ' +
+      Math.floor((totalActiveTime % 3600) / 60) + 'm');
+
+    // Debug: Log each employee's active time
+    initialData.employeeStatuses.forEach(emp => {
+      console.log(`Manager dashboard - Employee ${emp.name} active time: ${emp.totalActiveTime} seconds`);
+    });
+  }
+
   return <ManagerDashboardContent initialData={initialData} />;
 };
 

@@ -1,15 +1,18 @@
 "use client";
-import { format, isSameDay, startOfDay } from "date-fns";
+import { format, isSameDay, startOfDay, parseISO } from "date-fns";
 import { formatInTimeZone } from 'date-fns-tz'; // Import timezone formatter
+import { capShiftDuration, MAX_SHIFT_DURATION_SECONDS } from "@/lib/shift-utils"; // Import shift utilities
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import clsx from 'clsx';
 import { Database } from "@/lib/supabase/database.types"; // Import database types
-import { useState, useContext, useEffect } from "react"; // Import useState, useContext and useEffect
+import { useState, useContext, useEffect, useRef } from "react"; // Import useState, useContext, useEffect and useRef
 import { useRouter } from 'next/navigation'; // Import for page refresh
 import dynamic from 'next/dynamic'; // Import dynamic
 import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the hook
 import { useMediaQuery } from '@/hooks/useMediaQuery'; // Import useMediaQuery hook
+import { useAttendance } from '@/context/AttendanceContext'; // Import the attendance context hook
+import { determineUserStatus, getLastActivity } from '@/lib/utils/statusDetermination';
 import {
   ResponsiveTable,
   ResponsiveTableHeader,
@@ -121,13 +124,18 @@ import {
 
 type AttendanceLog = Database['public']['Tables']['attendance_logs']['Row'];
 
-// Helper function to calculate duration between two logs in seconds
+// Helper function to calculate duration between two logs in seconds with capping
 function calculateDuration(startLog: AttendanceLog, endLog: AttendanceLog): number {
   if (!startLog?.timestamp || !endLog?.timestamp) return 0;
   const startTime = new Date(startLog.timestamp).getTime();
   const endTime = new Date(endLog.timestamp).getTime();
+
   // Ensure end time is after start time
-  return endTime > startTime ? (endTime - startTime) / 1000 : 0;
+  if (endTime <= startTime) return 0;
+
+  // Apply capping to prevent unreasonably long durations
+  const { durationSeconds } = capShiftDuration(startTime, endTime);
+  return durationSeconds;
 }
 
 // --- New Duration Formatting Helpers ---
@@ -232,18 +240,26 @@ const getStatBarColor = (label: string): string => {
 };
 
 export default function DashboardClient({
-  logs,
   userProfile,
   departmentName,
   timezone: serverTimezone
 }: {
-  logs: AttendanceLog[];
   userProfile: { full_name: string; role: string; department_id: string | null } | null;
   departmentName: string | null;
   timezone: string;
 }) { // Use AttendanceLog type
   const router = useRouter(); // Get router instance
   const { timezone: contextTimezone } = useTimezone(); // Use the hook to get timezone
+  const {
+    logs,
+    metrics,
+    isLoading,
+    lastUpdateTime,
+    isRealTimeEnabled,
+    toggleRealTimeUpdates,
+    refreshData,
+    formatDuration
+  } = useAttendance(); // Use the attendance context
 
   // Use server-provided timezone as the source of truth, fallback to context
   const timezone = serverTimezone || contextTimezone;
@@ -259,26 +275,89 @@ export default function DashboardClient({
     return () => clearInterval(interval); // Cleanup on unmount
   }, []); // Empty dependency array ensures this runs only once on mount
 
-  // Calculate stats for Today, Week, Month
+  // Use metrics from the context
   const now = currentTime; // Use state variable for current time
   const todayStart = startOfDay(now);
-  const weekStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())); // Correct week start calculation
-  const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
+  const weekStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay())); // Start of week (Sunday)
+  const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1)); // Start of month
 
-  let todaySecs = 0;
-  let weekSecs = 0;
-  let monthSecs = 0;
-  let breakTimeSecs = 0; // Track break time
-  let overtimeSecs = 0; // Track overtime
-  const dailyMap: Record<string, number> = {};
-  const attendancePairs: { in: AttendanceLog, out: AttendanceLog | null, breakTime?: number, overtime?: number }[] = [];
-  let lastSignInLog: AttendanceLog | null = null;
-  let lastBreakStartLog: AttendanceLog | null = null;
-  let isOnBreak = false;
+  // Get metrics directly from the context
+  let todaySecs = metrics.workTime;
+  let weekSecs = metrics.weekTime;
+  let monthSecs = metrics.monthTime;
+  let breakTimeSecs = metrics.breakTime;
+  let overtimeSecs = metrics.overtimeSeconds;
+  const isCurrentlySignedIn = metrics.isActive;
+  const isOnBreak = metrics.isOnBreak;
+
+  // Add state for real-time counters
+  const [realTimeWorkSecs, setRealTimeWorkSecs] = useState(todaySecs);
+  const [realTimeBreakSecs, setRealTimeBreakSecs] = useState(breakTimeSecs);
+
+  // Update real-time counters every second if user is active or on break
+  useEffect(() => {
+    // Initialize with values from metrics
+    setRealTimeWorkSecs(metrics.workTime);
+    setRealTimeBreakSecs(metrics.breakTime);
+
+    console.log('Real-time counter effect triggered. Status:',
+      isCurrentlySignedIn ? 'Signed In' : 'Signed Out',
+      isOnBreak ? 'On Break' : 'Not on Break',
+      'Real-time enabled:', isRealTimeEnabled);
+
+    // Only increment counters if real-time updates are enabled
+    if (!isRealTimeEnabled) return;
+
+    const interval = setInterval(() => {
+      // If user is signed in and not on break, increment work time
+      if (isCurrentlySignedIn && !isOnBreak) {
+        setRealTimeWorkSecs(prev => prev + 1);
+      }
+
+      // If user is on break, increment break time
+      if (isOnBreak) {
+        setRealTimeBreakSecs(prev => prev + 1);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [metrics, isCurrentlySignedIn, isOnBreak, isRealTimeEnabled]);
+
+  // Reset real-time counters when metrics change
+  useEffect(() => {
+    setRealTimeWorkSecs(metrics.workTime);
+    setRealTimeBreakSecs(metrics.breakTime);
+    console.log('Metrics changed, resetting real-time counters to:', {
+      workTime: `${Math.floor(metrics.workTime/3600)}h ${Math.floor((metrics.workTime%3600)/60)}m ${metrics.workTime % 60}s`,
+      breakTime: `${Math.floor(metrics.breakTime/3600)}h ${Math.floor((metrics.breakTime%3600)/60)}m ${metrics.breakTime % 60}s`
+    });
+  }, [metrics.workTime, metrics.breakTime]);
+
+  // Create a local state variable for tracking break status that we can modify
+  // Initialize with isOnBreak but don't create a dependency that could cause infinite loops
+  const [localBreakStatus, setLocalBreakStatus] = useState(false);
+
+  // Sync local break status with context when context changes
+  // Use a ref to track if this is the first render to avoid infinite loops
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      setLocalBreakStatus(isOnBreak);
+      isFirstRender.current = false;
+    }
+  }, [isOnBreak]);
+
+  // For attendance records display
+  let dailyMap: Record<string, number> = {};
+  let attendancePairs: { in: AttendanceLog, out: AttendanceLog | null, breakTime?: number, overtime?: number }[] = [];
+
+  // Create nowInTimezone at the top level so it's available to all functions
+  let nowInTimezone = new Date(formatInTimeZone(now, timezone, 'yyyy-MM-dd HH:mm:ss'));
 
   // Process logs to find pairs and calculate durations
   const sortedLogs = (logs || []).sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
-  const processedIndices = new Set<number>();
+  let processedIndices = new Set<number>();
 
   // Use timezone when calculating date strings for grouping if needed
   const dateStrToTimezone = (date: Date) => {
@@ -287,168 +366,370 @@ export default function DashboardClient({
       } catch { return 'invalid-date'; } // Handle potential errors
   };
 
-  // First pass: collect all break periods
-  const breakPeriods: { start: AttendanceLog, end: AttendanceLog | null }[] = [];
+  // First pass: collect all break periods using a functional approach to avoid mutation issues
 
-  for (let i = 0; i < sortedLogs.length; i++) {
-    const currentLog = sortedLogs[i];
+  // Define our types
+  type BreakPeriod = { start: AttendanceLog, end: AttendanceLog | null };
+  type TimePeriod = { start: Date, end: Date };
 
-    if (currentLog.event_type === 'break_start') {
-      let foundBreakEnd = false;
+  // Function to process logs and extract break periods
+  const processBreakPeriods = () => {
+    const result: {
+      breakPeriods: BreakPeriod[],
+      breakTimePeriods: TimePeriod[],
+      isCurrentlyOnBreak: boolean,
+      lastBreakStartLog: AttendanceLog | null
+    } = {
+      breakPeriods: [],
+      breakTimePeriods: [],
+      isCurrentlyOnBreak: false,
+      lastBreakStartLog: null
+    };
 
-      // Look for matching break_end
-      for (let j = i + 1; j < sortedLogs.length; j++) {
-        const nextLog = sortedLogs[j];
-        if (
-          nextLog.event_type === 'break_end' &&
-          isSameDay(new Date(currentLog.timestamp || 0), new Date(nextLog.timestamp || 0))
-        ) {
-          breakPeriods.push({ start: currentLog, end: nextLog });
-          processedIndices.add(i);
-          processedIndices.add(j);
-          foundBreakEnd = true;
-          break;
-        }
-      }
+    let lastBreakStartTimestamp: Date | null = null;
 
-      // Handle unpaired break_start
-      if (!foundBreakEnd) {
-        breakPeriods.push({ start: currentLog, end: null });
-        processedIndices.add(i);
+    // Create a new Set for processed indices to avoid modifying the outer one yet
+    const localProcessedIndices = new Set<number>();
 
-        // If the last event is an unpaired break_start, user is currently on break
-        if (i === sortedLogs.length - 1) {
-          isOnBreak = true;
-          lastBreakStartLog = currentLog;
-        }
-      }
-    }
-  }
+    // First pass to find break periods
+    for (let i = 0; i < sortedLogs.length; i++) {
+      const currentLog = sortedLogs[i];
+      if (!currentLog.timestamp) continue;
 
-  // Calculate total break time
-  breakPeriods.forEach(period => {
-    if (period.end) {
-      const breakDuration = calculateDuration(period.start, period.end);
-      breakTimeSecs += breakDuration;
-    } else {
-      // For ongoing break, calculate duration until now
-      if (isOnBreak && lastBreakStartLog) {
-        const ongoingBreakDuration = (now.getTime() - new Date(lastBreakStartLog.timestamp || 0).getTime()) / 1000;
-        breakTimeSecs += ongoingBreakDuration;
-      }
-    }
-  });
+      const timestamp = new Date(currentLog.timestamp);
+      const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
 
-  // Second pass: process signin/signout pairs
-  for (let i = 0; i < sortedLogs.length; i++) {
-    if (processedIndices.has(i)) continue; // Skip if already processed
+      if (currentLog.event_type === 'break_start') {
+        lastBreakStartTimestamp = timestampInTimezone;
+        let foundBreakEnd = false;
 
-    const currentLog = sortedLogs[i];
-    if (currentLog.event_type === 'signin') {
-      lastSignInLog = currentLog; // Update last sign in
-      let foundPair = false;
+        // Look for matching break_end
+        for (let j = i + 1; j < sortedLogs.length; j++) {
+          const nextLog = sortedLogs[j];
+          if (nextLog.event_type === 'break_end' && nextLog.timestamp) {
+            const nextTimestamp = new Date(nextLog.timestamp);
+            const nextTimestampInTimezone = new Date(formatInTimeZone(nextTimestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
 
-      // Look for the next signout (allowing overnight shifts)
-      for (let j = i + 1; j < sortedLogs.length; j++) {
-        if (processedIndices.has(j)) continue; // Skip if already paired
+            // Add to time periods
+            result.breakTimePeriods.push({
+              start: timestampInTimezone,
+              end: nextTimestampInTimezone
+            });
 
-        const nextLog = sortedLogs[j];
-        if (nextLog.event_type === 'signout') {
-          const duration = calculateDuration(currentLog, nextLog);
-          const logDate = startOfDay(new Date(currentLog.timestamp || 0));
-          const dateStr = dateStrToTimezone(logDate); // Use consistent date format
+            // Add to break periods
+            result.breakPeriods.push({
+              start: currentLog,
+              end: nextLog
+            });
 
-          // Calculate overtime (if duration > 8 hours)
-          const standardWorkdaySecs = 8 * 3600; // 8 hours in seconds
-          const pairOvertimeSecs = Math.max(0, duration - standardWorkdaySecs);
+            // Mark as processed
+            localProcessedIndices.add(i);
+            localProcessedIndices.add(j);
 
-          // Add duration to totals
-          if (isSameDay(logDate, todayStart)) {
-            todaySecs += duration;
-            overtimeSecs += pairOvertimeSecs;
+            lastBreakStartTimestamp = null;
+            foundBreakEnd = true;
+            break;
           }
-          if (logDate >= weekStart) weekSecs += duration;
-          if (logDate >= monthStart) monthSecs += duration;
-          dailyMap[dateStr] = (dailyMap[dateStr] || 0) + duration;
+        }
 
-          // Find break periods within this signin/signout pair
-          const pairBreakSecs = breakPeriods
-            .filter(bp =>
-              bp.start.timestamp && bp.end?.timestamp &&
-              new Date(bp.start.timestamp).getTime() >= new Date(currentLog.timestamp || 0).getTime() &&
-              new Date(bp.end.timestamp).getTime() <= new Date(nextLog.timestamp || 0).getTime()
-            )
-            .reduce((total, bp) => total + calculateDuration(bp.start, bp.end!), 0);
-
-          attendancePairs.push({
-            in: currentLog,
-            out: nextLog,
-            overtime: pairOvertimeSecs,
-            breakTime: pairBreakSecs > 0 ? pairBreakSecs : undefined
+        // Handle unpaired break_start
+        if (!foundBreakEnd) {
+          result.breakPeriods.push({
+            start: currentLog,
+            end: null
           });
 
-          processedIndices.add(i);
-          processedIndices.add(j);
-          foundPair = true;
-          lastSignInLog = null; // Paired, reset last sign in
-          break; // Found the pair for this signin
+          localProcessedIndices.add(i);
+
+          // If this is the last event, user is currently on break
+          if (i === sortedLogs.length - 1) {
+            result.isCurrentlyOnBreak = true;
+            result.lastBreakStartLog = currentLog;
+          }
         }
       }
-
-      // Handle unpaired signin (add to pairs list with null signout)
-      if (!foundPair) {
-        attendancePairs.push({ in: currentLog, out: null });
-        processedIndices.add(i); // Mark as processed even if unpaired
-      }
-    } else if (currentLog.event_type === 'signout') {
-      // Handle potential signout without preceding signin
-      processedIndices.add(i); // Mark as processed
-      lastSignInLog = null; // Sign out occurred, reset last sign in
     }
+
+    // Add all processed indices to the outer set
+    localProcessedIndices.forEach(index => processedIndices.add(index));
+
+    // Close any open break period with current time
+    // Use the outer nowInTimezone variable
+    if (lastBreakStartTimestamp) {
+      result.breakTimePeriods.push({
+        start: lastBreakStartTimestamp,
+        end: nowInTimezone
+      });
+    }
+
+    return result;
+  };
+
+  // Process break periods
+  const { breakPeriods, breakTimePeriods, isCurrentlyOnBreak, lastBreakStartLog } = processBreakPeriods();
+
+  // Update local break status if needed - using useEffect to avoid infinite renders
+  useEffect(() => {
+    if (isCurrentlyOnBreak) {
+      setLocalBreakStatus(true);
+    }
+  }, [isCurrentlyOnBreak]);
+
+  // Calculate total break time using the same approach as manager dashboard
+  const calculateTotalSeconds = (periods: TimePeriod[]): number => {
+    return periods.reduce((total, period) => {
+      const seconds = (period.end.getTime() - period.start.getTime()) / 1000;
+      // Ensure we don't add negative values
+      return total + Math.max(0, seconds);
+    }, 0);
+  };
+
+  // We're using the metrics from the context for break time
+  // Just ensure it's capped to a reasonable maximum
+  breakTimeSecs = metrics.breakTime; // Use context breakTime directly
+  if (breakTimeSecs > MAX_SHIFT_DURATION_SECONDS) {
+    breakTimeSecs = MAX_SHIFT_DURATION_SECONDS;
   }
+
+  // nowInTimezone is already declared at the top level
+
+  // Process signin/signout pairs using a functional approach
+  const processActivePeriods = () => {
+    const result: {
+      activePeriods: TimePeriod[],
+      attendancePairs: { in: AttendanceLog, out: AttendanceLog | null, breakTime?: number, overtime?: number }[],
+      dailyMap: Record<string, number>,
+      todaySecs: number,
+      weekSecs: number,
+      monthSecs: number,
+      overtimeSecs: number
+    } = {
+      activePeriods: [],
+      attendancePairs: [],
+      dailyMap: {},
+      todaySecs: 0,
+      weekSecs: 0,
+      monthSecs: 0,
+      overtimeSecs: 0
+    };
+
+    let lastActiveStartTimestamp: Date | null = null;
+
+    // Create a new Set for processed indices to avoid modifying the outer one
+    const localProcessedIndices = new Set<number>(processedIndices);
+
+    // Process signin/signout pairs
+    for (let i = 0; i < sortedLogs.length; i++) {
+      if (localProcessedIndices.has(i)) continue; // Skip if already processed
+
+      const currentLog = sortedLogs[i];
+      if (!currentLog.timestamp) continue;
+
+      const timestamp = new Date(currentLog.timestamp);
+      const timestampInTimezone = new Date(formatInTimeZone(timestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
+
+      if (currentLog.event_type === 'signin') {
+        // Store the active start timestamp
+        lastActiveStartTimestamp = timestampInTimezone;
+
+        let foundPair = false;
+
+        // Look for the next signout
+        for (let j = i + 1; j < sortedLogs.length; j++) {
+          if (localProcessedIndices.has(j)) continue; // Skip if already paired
+
+          const nextLog = sortedLogs[j];
+          if (nextLog.event_type === 'signout' && nextLog.timestamp) {
+            const nextTimestamp = new Date(nextLog.timestamp);
+            const nextTimestampInTimezone = new Date(formatInTimeZone(nextTimestamp, timezone, 'yyyy-MM-dd HH:mm:ss'));
+
+            // Add to active periods
+            if (lastActiveStartTimestamp) {
+              result.activePeriods.push({
+                start: lastActiveStartTimestamp,
+                end: nextTimestampInTimezone
+              });
+              lastActiveStartTimestamp = null;
+            }
+
+            // Calculate duration
+            const duration = calculateDuration(currentLog, nextLog);
+
+            // Use the timestamp in timezone for date calculations
+            const logDate = startOfDay(timestampInTimezone);
+            const dateStr = formatInTimeZone(logDate, timezone, 'yyyy-MM-dd');
+
+            // Calculate overtime
+            const standardWorkdaySecs = 8 * 3600; // 8 hours in seconds
+            const pairOvertimeSecs = Math.max(0, duration - standardWorkdaySecs);
+
+            // Add duration to totals
+            const todayDateStr = formatInTimeZone(todayStart, timezone, 'yyyy-MM-dd');
+            const logDateStr = formatInTimeZone(logDate, timezone, 'yyyy-MM-dd');
+
+            if (logDateStr === todayDateStr) {
+              result.todaySecs += duration;
+              result.overtimeSecs += pairOvertimeSecs;
+            }
+
+            // For week and month
+            if (logDate >= weekStart) result.weekSecs += duration;
+            if (logDate >= monthStart) result.monthSecs += duration;
+
+            // Store in daily map
+            result.dailyMap[dateStr] = (result.dailyMap[dateStr] || 0) + duration;
+
+            // Find break periods within this signin/signout pair
+            const pairBreakSecs = breakPeriods
+              .filter(bp =>
+                bp.start.timestamp && bp.end?.timestamp &&
+                new Date(bp.start.timestamp).getTime() >= new Date(currentLog.timestamp || 0).getTime() &&
+                new Date(bp.end.timestamp).getTime() <= new Date(nextLog.timestamp || 0).getTime()
+              )
+              .reduce((total, bp) => total + calculateDuration(bp.start, bp.end!), 0);
+
+            // Add to attendance pairs
+            result.attendancePairs.push({
+              in: currentLog,
+              out: nextLog,
+              overtime: pairOvertimeSecs,
+              breakTime: pairBreakSecs > 0 ? pairBreakSecs : undefined
+            });
+
+            localProcessedIndices.add(i);
+            localProcessedIndices.add(j);
+            foundPair = true;
+            break;
+          }
+        }
+
+        // Handle unpaired signin
+        if (!foundPair) {
+          result.attendancePairs.push({ in: currentLog, out: null });
+          localProcessedIndices.add(i);
+        }
+      } else if (currentLog.event_type === 'signout') {
+        // Handle potential signout without preceding signin
+        localProcessedIndices.add(i);
+        lastActiveStartTimestamp = null;
+      }
+    }
+
+    // Close any open active period with current time
+    if (lastActiveStartTimestamp) {
+      result.activePeriods.push({
+        start: lastActiveStartTimestamp,
+        end: nowInTimezone
+      });
+    }
+
+    // Add all processed indices to the outer set
+    localProcessedIndices.forEach(index => processedIndices.add(index));
+
+    return result;
+  };
+
+  // Process active periods
+  const {
+    attendancePairs: processedAttendancePairs,
+    dailyMap: processedDailyMap,
+    todaySecs: processedTodaySecs,
+    weekSecs: processedWeekSecs,
+    monthSecs: processedMonthSecs,
+    overtimeSecs: processedOvertimeSecs
+  } = processActivePeriods();
+
+  // Update our variables with the processed results for attendance pairs and daily map
+  attendancePairs = processedAttendancePairs;
+  dailyMap = processedDailyMap;
+
+  // IMPORTANT: Use the metrics from the context for today's time, not our own calculation
+  // This ensures consistency with the manager dashboard
+  // todaySecs = processedTodaySecs; // Don't use our own calculation
+  // weekSecs = processedWeekSecs; // Don't use our own calculation
+  // monthSecs = processedMonthSecs; // Don't use our own calculation
+  // overtimeSecs = processedOvertimeSecs; // Don't use our own calculation
+
+  // We're using the metrics from the context, so we don't need to recalculate
+  // Just ensure our values are capped appropriately
+  console.log('Using metrics from context - workTime:', metrics.workTime, 'breakTime:', metrics.breakTime);
+
+  // Cap all durations to reasonable maximums
+  if (todaySecs > MAX_SHIFT_DURATION_SECONDS) todaySecs = MAX_SHIFT_DURATION_SECONDS;
+  if (weekSecs > (MAX_SHIFT_DURATION_SECONDS * 7)) weekSecs = MAX_SHIFT_DURATION_SECONDS * 7;
+  if (monthSecs > (MAX_SHIFT_DURATION_SECONDS * 31)) monthSecs = MAX_SHIFT_DURATION_SECONDS * 31;
 
   const dailyData = Object.entries(dailyMap)
     .map(([date, secs]) => ({ date, hours: +(secs / 3600).toFixed(2) }))
     .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Sort daily data for chart
 
-  // Determine if user is currently signed in by analyzing the sequence of events
-  let isCurrentlySignedIn = false;
+  // Use our utility function to determine the user's status
+  const userStatus = determineUserStatus(sortedLogs);
 
-  // Process all logs chronologically to determine current state
-  for (const log of sortedLogs) {
-    if (log.event_type === 'signin') {
-      isCurrentlySignedIn = true;
-    } else if (log.event_type === 'signout') {
-      isCurrentlySignedIn = false;
-    }
-    // Break events don't affect signed-in status
-  }
-
-  // Also consider the lastSignInLog as a backup check
-  if (!!lastSignInLog && !isCurrentlySignedIn) {
-    console.log('Warning: State calculation shows not signed in, but lastSignInLog exists. Using lastSignInLog as fallback.');
-    isCurrentlySignedIn = true;
-  }
+  // Override the context values with our utility function values for consistency
+  const isCurrentlySignedInActual = userStatus === 'signed_in';
+  const isOnBreakActual = userStatus === 'on_break';
 
   // Add a useEffect to log the current sign-in state for debugging
   useEffect(() => {
-    console.log('Current sign-in state:', isCurrentlySignedIn ? 'Signed In' : 'Signed Out');
+    console.log('Current sign-in state (from context):', isCurrentlySignedIn ? 'Signed In' : 'Signed Out');
+    console.log('Current sign-in state (from utility):', userStatus);
+    console.log('Current break state (from context):', isOnBreak ? 'On Break' : 'Not on Break');
+    console.log('Current break state (local):', localBreakStatus ? 'On Break' : 'Not on Break');
     console.log('Last log event type:', sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1].event_type : 'None');
-  }, [isCurrentlySignedIn, sortedLogs]);
 
-  // Calculate current dynamic session duration if signed in
-  let currentSessionDurationSecs = 0;
-  if (isCurrentlySignedIn && lastSignInLog?.timestamp) {
-    currentSessionDurationSecs = (currentTime.getTime() - new Date(lastSignInLog.timestamp).getTime()) / 1000;
-  }
-  const finalTodaySecs = todaySecs + currentSessionDurationSecs; // Total today's time including ongoing
-  const finalWeekSecs = weekSecs + (isSameDay(now, todayStart) ? currentSessionDurationSecs : 0); // Add ongoing to week if today
-  const finalMonthSecs = monthSecs + (isSameDay(now, todayStart) ? currentSessionDurationSecs : 0); // Add ongoing to month if today
+    // Log time metrics for debugging
+    console.log('Time metrics from context:', {
+      workTime: `${Math.floor(metrics.workTime/3600)}h ${Math.floor((metrics.workTime%3600)/60)}m`,
+      breakTime: `${Math.floor(metrics.breakTime/3600)}h ${Math.floor((metrics.breakTime%3600)/60)}m`,
+      weekTime: `${Math.floor(metrics.weekTime/3600)}h ${Math.floor((metrics.weekTime%3600)/60)}m`,
+      monthTime: `${Math.floor(metrics.monthTime/3600)}h ${Math.floor((metrics.monthTime%3600)/60)}m`,
+    });
+
+    console.log('Time metrics from local calculation:', {
+      todaySecs: `${Math.floor(processedTodaySecs/3600)}h ${Math.floor((processedTodaySecs%3600)/60)}m`,
+      breakTimeSecs: `${Math.floor(breakTimeSecs/3600)}h ${Math.floor((breakTimeSecs%3600)/60)}m`,
+      weekSecs: `${Math.floor(processedWeekSecs/3600)}h ${Math.floor((processedWeekSecs%3600)/60)}m`,
+      monthSecs: `${Math.floor(processedMonthSecs/3600)}h ${Math.floor((processedMonthSecs%3600)/60)}m`,
+    });
+
+    // Log any discrepancies between context and utility function
+    if ((userStatus === 'signed_in' && !isCurrentlySignedIn) ||
+        (userStatus === 'signed_out' && isCurrentlySignedIn) ||
+        (userStatus === 'on_break' && !isOnBreak)) {
+      console.warn('Status discrepancy detected between context and utility function!');
+    }
+  }, [isCurrentlySignedIn, isOnBreak, localBreakStatus, sortedLogs, userStatus, metrics, processedTodaySecs, breakTimeSecs, processedWeekSecs, processedMonthSecs]);
+
+  // Use real-time counters for active display, but keep metrics for consistency with manager dashboard
+  // This ensures the timer updates in real-time while still being consistent with the server
+  const finalTodaySecs = isRealTimeEnabled ? realTimeWorkSecs : metrics.workTime;
+  const finalWeekSecs = metrics.weekTime; // Use context weekTime
+  const finalMonthSecs = metrics.monthTime; // Use context monthTime
+  // Keep using the context value for overtime
+  overtimeSecs = metrics.overtimeSeconds;
+  // Use real-time break counter
+  const finalBreakSecs = isRealTimeEnabled ? realTimeBreakSecs : metrics.breakTime;
 
   // Calculate decimal hours for components expecting numbers
   const finalTodayHrsDecimal = finalTodaySecs / 3600;
   const weekHrsDecimal = finalWeekSecs / 3600;
   const monthHrsDecimal = finalMonthSecs / 3600;
+
+  console.log('Final time values used for display:', {
+    finalTodaySecs: `${Math.floor(finalTodaySecs/3600)}h ${Math.floor((finalTodaySecs%3600)/60)}m ${finalTodaySecs % 60}s`,
+    finalWeekSecs: `${Math.floor(finalWeekSecs/3600)}h ${Math.floor((finalWeekSecs%3600)/60)}m`,
+    finalMonthSecs: `${Math.floor(finalMonthSecs/3600)}h ${Math.floor((finalMonthSecs%3600)/60)}m`,
+    overtimeSecs: `${Math.floor(overtimeSecs/3600)}h ${Math.floor((overtimeSecs%3600)/60)}m`,
+    finalBreakSecs: `${Math.floor(finalBreakSecs/3600)}h ${Math.floor((finalBreakSecs%3600)/60)}m ${finalBreakSecs % 60}s`,
+  });
+
+  // Log real-time counters
+  console.log('Real-time counters:', {
+    realTimeWorkSecs: `${Math.floor(realTimeWorkSecs/3600)}h ${Math.floor((realTimeWorkSecs%3600)/60)}m ${realTimeWorkSecs % 60}s`,
+    realTimeBreakSecs: `${Math.floor(realTimeBreakSecs/3600)}h ${Math.floor((realTimeBreakSecs%3600)/60)}m ${realTimeBreakSecs % 60}s`,
+    isRealTimeEnabled
+  });
 
   // --- Formatting Outputs ---
   const formatTime = (date: Date | string | number | null | undefined) => {
@@ -501,10 +782,22 @@ export default function DashboardClient({
       });
 
       // Show success message for 2 seconds before refreshing to ensure the server has time to process
-      setTimeout(() => {
-        console.log('Refreshing page after punch out...');
-        // Force a full page reload instead of just a router refresh
-        window.location.href = '/?t=' + new Date().getTime(); // Add timestamp to prevent caching
+      setTimeout(async () => {
+        console.log('Refreshing data after punch out...');
+        try {
+          // Refresh data using the context
+          await refreshData();
+          // No need for a full page reload anymore
+          setPunchStatus({
+            loading: false,
+            message: 'Punch out successful! Data refreshed.',
+            error: false
+          });
+        } catch (error) {
+          console.error('Error refreshing data after punch out:', error);
+          // Fall back to page reload if refresh fails
+          window.location.href = '/?t=' + new Date().getTime(); // Add timestamp to prevent caching
+        }
       }, 2000);
     } catch (error: any) {
       console.error("Punch out error:", error);
@@ -521,9 +814,21 @@ export default function DashboardClient({
           error: true
         });
 
-        // Force a page reload after 2 seconds to sync the UI with the server
-        setTimeout(() => {
-          window.location.reload();
+        // Refresh data after 2 seconds to sync the UI with the server
+        setTimeout(async () => {
+          try {
+            // Refresh data using the context
+            await refreshData();
+            setPunchStatus({
+              loading: false,
+              message: 'Status updated. Data refreshed.',
+              error: false
+            });
+          } catch (error) {
+            console.error('Error refreshing data after status mismatch:', error);
+            // Fall back to page reload if refresh fails
+            window.location.reload();
+          }
         }, 2000);
       } else {
         // For other errors, just show the error message
@@ -548,12 +853,28 @@ export default function DashboardClient({
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
 
+      // Immediately update local break status
+      setLocalBreakStatus(true);
+      console.log('Break started, setting localBreakStatus to true');
+
       setPunchStatus({ loading: false, message: `${data.message || 'Break started!'} Page will refresh in a moment...`, error: false });
 
       // Show success message for 1.5 seconds before refreshing
-      setTimeout(() => {
-        // Force a full page reload instead of just a router refresh
-        window.location.reload();
+      setTimeout(async () => {
+        try {
+          // Refresh data using the context
+          await refreshData();
+          // No need for a full page reload anymore
+          setPunchStatus({
+            loading: false,
+            message: 'Break started! Data refreshed.',
+            error: false
+          });
+        } catch (error) {
+          console.error('Error refreshing data after break start:', error);
+          // Fall back to page reload if refresh fails
+          window.location.reload();
+        }
       }, 1500);
     } catch (error: any) {
       console.error("Break start error:", error);
@@ -585,12 +906,28 @@ export default function DashboardClient({
         throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
 
+      // Immediately update local break status to show buttons
+      setLocalBreakStatus(false);
+      console.log('Break ended, setting localBreakStatus to false');
+
       setPunchStatus({ loading: false, message: `${data.message || 'Break ended!'} Page will refresh in a moment...`, error: false });
 
       // Show success message for 1.5 seconds before refreshing
-      setTimeout(() => {
-        // Force a full page reload instead of just a router refresh
-        window.location.reload();
+      setTimeout(async () => {
+        try {
+          // Refresh data using the context
+          await refreshData();
+          // No need for a full page reload anymore
+          setPunchStatus({
+            loading: false,
+            message: 'Break ended! Data refreshed.',
+            error: false
+          });
+        } catch (error) {
+          console.error('Error refreshing data after break end:', error);
+          // Fall back to page reload if refresh fails
+          window.location.reload();
+        }
       }, 1500);
     } catch (error: any) {
       console.error("Break end error:", error);
@@ -612,7 +949,38 @@ export default function DashboardClient({
       >
         <div className="w-full flex justify-between items-center mb-3">
           <div className="font-semibold text-lg text-foreground">Timesheet</div>
-          <div className="text-muted-foreground text-xs px-2 py-1 bg-primary/10 rounded-full">{formatFullDate(currentTime)}</div>
+          <div className="flex flex-col items-end gap-1">
+            <div className="text-muted-foreground text-xs px-2 py-1 bg-primary/10 rounded-full">
+              {formatFullDate(currentTime)}
+              <span className="ml-2 text-xs text-primary">({timezone.replace(/_/g, ' ')})</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={refreshData}
+                className="inline-flex items-center px-2 py-1 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-xs"
+                disabled={isLoading}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                </svg>
+                {isRealTimeEnabled ? 'Real-time: On' : 'Real-time: Off'}
+              </button>
+              <button
+                onClick={toggleRealTimeUpdates}
+                className="inline-flex items-center px-2 py-1 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-xs"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                </svg>
+                {isRealTimeEnabled ? 'Auto' : 'Manual'}
+              </button>
+            </div>
+            {lastUpdateTime && (
+              <div className="text-xs text-muted-foreground">
+                Last updated: {formatInTimeZone(lastUpdateTime, timezone, 'h:mm:ss a')}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Department Information */}
@@ -637,7 +1005,7 @@ export default function DashboardClient({
         <div className="grid grid-cols-2 gap-4 w-full mt-4 mb-4">
           <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
             <span className="text-xs text-muted-foreground mb-1">Break</span>
-            <ClientOnlyBreakDisplay seconds={breakTimeSecs} />
+            <ClientOnlyBreakDisplay seconds={finalBreakSecs} />
           </div>
           <div className="flex flex-col items-center p-2 bg-primary/5 rounded-lg">
             <span className="text-xs text-muted-foreground mb-1">Overtime</span>
@@ -648,7 +1016,7 @@ export default function DashboardClient({
         {/* Action Buttons */}
         <div className="flex flex-col gap-2 w-full mt-2">
           {/* Break Buttons */}
-          {isCurrentlySignedIn && !isOnBreak && (
+          {(userStatus === 'signed_in') && !localBreakStatus && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
@@ -690,7 +1058,7 @@ export default function DashboardClient({
           )}
 
           {/* End Break Button */}
-          {isOnBreak && (
+          {(userStatus === 'on_break') && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
@@ -736,7 +1104,7 @@ export default function DashboardClient({
           )}
 
           {/* Punch Out Button */}
-          {isCurrentlySignedIn && !isOnBreak && (
+          {(userStatus === 'signed_in') && !localBreakStatus && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
@@ -1077,7 +1445,7 @@ export default function DashboardClient({
             <YAxis tick={{fontSize:10, fill: 'var(--color-muted-foreground)'}} unit="h" />
             <Tooltip
               // Use simpler tooltip formatter
-              formatter={(value: number, name: string, props: any) => {
+              formatter={(value: number) => {
                   // The raw value here is decimal hours from dailyData
                   // Convert back to seconds to use formatDurationTooltip
                   const seconds = value * 3600;

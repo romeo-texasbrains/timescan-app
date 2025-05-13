@@ -5,6 +5,8 @@ import { Suspense } from 'react'
 import ClientWrapper from './ClientWrapper'
 import { format, parseISO } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
+import { determineUserStatus, getStatusLabel } from '@/lib/utils/statusDetermination'
+import { calculateUserAttendanceMetrics } from '@/lib/utils/metrics-calculator'
 
 // Type for employee status
 type EmployeeStatus = {
@@ -102,170 +104,94 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
   }
 
   // Process employee status
-  const employeeStatuses: EmployeeStatus[] = [];
-  const activeEmployeeIds = new Set<string>();
+  let employeeStatuses: EmployeeStatus[] = [];
+  let activeEmployeeCount = 0;
 
-  if (allEmployees && todayLogs) {
-    // Create a map of the latest status for each employee
-    const latestStatusMap = new Map<string, { status: 'signed_in' | 'signed_out' | 'on_break', timestamp: string }>();
+  if (allEmployees) {
+    // Calculate metrics directly for each employee
+    try {
+      // Get only today's attendance logs for metrics calculation
+      const { data: allLogs, error: allLogsError } = await supabase
+        .from('attendance_logs')
+        .select('*')
+        .gte('timestamp', `${todayStr}T00:00:00`)
+        .lte('timestamp', `${todayStr}T23:59:59`)
+        .order('timestamp', { ascending: true });
 
-    // Create maps to track active periods and break periods
-    const employeeActivePeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-    const employeeBreakPeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-
-    // Process logs chronologically to calculate active and break times
-    todayLogs.forEach(log => {
-      const timestamp = new Date(log.timestamp);
-      const userId = log.user_id;
-
-      // Update latest status
-      let status: 'signed_in' | 'signed_out' | 'on_break' = 'signed_out';
-
-      if (log.event_type === 'signin') {
-        // Start tracking active time
-        if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
-        } else if (!employeeActivePeriods.get(userId)!.start) {
-          employeeActivePeriods.get(userId)!.start = timestamp;
-        }
-
-        status = 'signed_in';
-        activeEmployeeIds.add(userId);
-      }
-      else if (log.event_type === 'signout') {
-        // End active period if exists
-        if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-          const activePeriod = employeeActivePeriods.get(userId)!;
-          activePeriod.periods.push({
-            start: activePeriod.start,
-            end: timestamp
-          });
-          activePeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // End break period if exists
-        if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-          const breakPeriod = employeeBreakPeriods.get(userId)!;
-          breakPeriod.periods.push({
-            start: breakPeriod.start,
-            end: timestamp
-          });
-          breakPeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        status = 'signed_out';
-      }
-      else if (log.event_type === 'break_start') {
-        // End active period if exists
-        if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-          const activePeriod = employeeActivePeriods.get(userId)!;
-          activePeriod.periods.push({
-            start: activePeriod.start,
-            end: timestamp
-          });
-          activePeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // Start break period
-        if (!employeeBreakPeriods.has(userId)) {
-          employeeBreakPeriods.set(userId, { start: timestamp, periods: [] });
-        } else {
-          employeeBreakPeriods.get(userId)!.start = timestamp;
-        }
-
-        status = 'on_break';
-        activeEmployeeIds.add(userId);
-      }
-      else if (log.event_type === 'break_end') {
-        // End break period if exists
-        if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-          const breakPeriod = employeeBreakPeriods.get(userId)!;
-          breakPeriod.periods.push({
-            start: breakPeriod.start,
-            end: timestamp
-          });
-          breakPeriod.start = null as unknown as Date; // Clear start time
-        }
-
-        // Start active period
-        if (!employeeActivePeriods.has(userId)) {
-          employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
-        } else {
-          employeeActivePeriods.get(userId)!.start = timestamp;
-        }
-
-        status = 'signed_in';
-        activeEmployeeIds.add(userId);
+      if (allLogsError) {
+        throw new Error(`Failed to fetch attendance logs: ${allLogsError.message}`);
       }
 
-      // Update latest status
-      if (!latestStatusMap.has(userId) ||
-          new Date(latestStatusMap.get(userId)!.timestamp) < timestamp) {
-        latestStatusMap.set(userId, { status, timestamp: log.timestamp });
-      }
-    });
+      console.log(`Server-side: Fetched ${allLogs?.length || 0} attendance logs for today (${todayStr})`);
 
-    // Close any open periods with current time for employees still active
-    const now = new Date();
+      // Group logs by user ID
+      const logsByUser = {};
+      allLogs?.forEach(log => {
+        if (!logsByUser[log.user_id]) {
+          logsByUser[log.user_id] = [];
+        }
+        logsByUser[log.user_id].push(log);
+      });
 
-    employeeActivePeriods.forEach((data, userId) => {
-      if (data.start) {
-        data.periods.push({ start: data.start, end: now });
-      }
-    });
+      // Calculate metrics for each employee
+      const userMetricsMap = new Map();
+      allEmployees.forEach(employee => {
+        const userLogs = logsByUser[employee.id] || [];
+        const metrics = calculateUserAttendanceMetrics(userLogs, timezone, employee.id);
+        userMetricsMap.set(employee.id, metrics);
+      });
 
-    employeeBreakPeriods.forEach((data, userId) => {
-      if (data.start) {
-        data.periods.push({ start: data.start, end: now });
-      }
-    });
+        // Create employee status objects
+        employeeStatuses = allEmployees.map(employee => {
+          const metrics = userMetricsMap.get(employee.id);
 
-    // Calculate total times for each employee
-    const calculateTotalMinutes = (periods: { start: Date, end: Date }[]): number => {
-      return periods.reduce((total, period) => {
-        const minutes = (period.end.getTime() - period.start.getTime()) / (1000 * 60);
-        return total + minutes;
-      }, 0);
-    };
-
-    // Create employee status objects
-    allEmployees.forEach(employee => {
-      // Skip if employee is undefined or doesn't have an id
-      if (!employee || !employee.id) return;
-
-      const latestStatus = latestStatusMap.get(employee.id);
-      const totalActiveTime = employeeActivePeriods.has(employee.id)
-        ? calculateTotalMinutes(employeeActivePeriods.get(employee.id)!.periods)
-        : 0;
-
-      const totalBreakTime = employeeBreakPeriods.has(employee.id)
-        ? calculateTotalMinutes(employeeBreakPeriods.get(employee.id)!.periods)
-        : 0;
-
-      if (latestStatus) {
-        employeeStatuses.push({
-          id: employee.id,
-          name: employee.full_name || 'Unnamed',
-          status: latestStatus.status,
-          lastActivity: getActivityLabel(latestStatus.status),
-          lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezone, 'h:mm a'),
-          department_id: employee.department_id || 'unassigned',
-          totalActiveTime: Math.round(totalActiveTime),
-          totalBreakTime: Math.round(totalBreakTime)
+          if (metrics) {
+            return {
+              id: employee.id,
+              name: employee.full_name || 'Unnamed',
+              status: metrics.isOnBreak ? 'on_break' : metrics.isActive ? 'signed_in' : 'signed_out',
+              lastActivity: metrics.lastActivity ?
+                (metrics.lastActivity.type === 'break_start' ? 'On Break' :
+                 metrics.lastActivity.type === 'signin' ? 'Signed In' :
+                 metrics.lastActivity.type === 'break_end' ? 'Signed In' : 'Signed Out')
+                : 'No activity recorded',
+              lastActivityTime: metrics.lastActivity ?
+                formatInTimeZone(parseISO(metrics.lastActivity.timestamp), timezone, 'h:mm a') : '',
+              department_id: employee.department_id || 'unassigned',
+              totalActiveTime: metrics.workTime, // Keep as seconds to match client-side
+              totalBreakTime: metrics.breakTime  // Keep as seconds to match client-side
+            };
+          } else {
+            return {
+              id: employee.id,
+              name: employee.full_name || 'Unnamed',
+              status: 'signed_out',
+              lastActivity: 'Not active today',
+              lastActivityTime: '',
+              department_id: employee.department_id || 'unassigned',
+              totalActiveTime: 0,
+              totalBreakTime: 0
+            };
+          }
         });
-      } else {
-        employeeStatuses.push({
-          id: employee.id,
-          name: employee.full_name || 'Unnamed',
-          status: 'signed_out',
-          lastActivity: 'Not active today',
-          lastActivityTime: '',
-          department_id: employee.department_id || 'unassigned',
-          totalActiveTime: 0,
-          totalBreakTime: 0
-        });
-      }
-    });
+
+        // Count active employees
+        activeEmployeeCount = employeeStatuses.filter(emp => emp.status !== 'signed_out').length;
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+
+      // Fallback: Create basic employee status objects without metrics
+      employeeStatuses = allEmployees.map(employee => ({
+        id: employee.id,
+        name: employee.full_name || 'Unnamed',
+        status: 'signed_out',
+        lastActivity: 'No activity recorded',
+        lastActivityTime: '',
+        department_id: employee.department_id || 'unassigned',
+        totalActiveTime: 0,
+        totalBreakTime: 0
+      }));
+    }
   }
 
   // Sort employee statuses: active first, then by name
@@ -278,7 +204,7 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
     return a.name.localeCompare(b.name);
   });
 
-  const activeEmployeeCount = activeEmployeeIds.size;
+  // activeEmployeeCount is now set in the API fetch section
 
   // Group employees by department - using a regular object instead of Map for better serialization
   const employeesByDepartmentObj: Record<string, EmployeeStatus[]> = {
@@ -301,14 +227,7 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
     employeesByDepartmentObj[deptId].push(employee);
   });
 
-  // Helper function to get activity label
-  function getActivityLabel(status: 'signed_in' | 'signed_out' | 'on_break'): string {
-    switch (status) {
-      case 'signed_in': return 'Signed In';
-      case 'signed_out': return 'Signed Out';
-      case 'on_break': return 'On Break';
-    }
-  }
+  // We're now using the imported getStatusLabel function from our utility
 
   // Convert departmentMap to a regular object for serialization
   const departmentMapObj: Record<string, string> = {};

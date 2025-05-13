@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { ChartBarIcon, DocumentTextIcon, UsersIcon, ClockIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline';
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
+import { capShiftDuration, MAX_SHIFT_DURATION_SECONDS } from '@/lib/shift-utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -14,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import ChangeStatusDropdown from '@/components/ChangeStatusDropdown';
+import { determineUserStatus, getLastActivity, getStatusLabel, eventTypeToStatus } from '@/lib/utils/statusDetermination';
 
 // Type for employee status
 type EmployeeStatus = {
@@ -296,11 +298,13 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
           }
         });
 
-        // Calculate total times for each employee
-        const calculateTotalMinutes = (periods: { start: Date, end: Date }[]): number => {
+        // Calculate total times for each employee in seconds (to match employee dashboard)
+        const calculateTotalSeconds = (periods: { start: Date, end: Date }[]): number => {
           return periods.reduce((total, period) => {
-            const minutes = (period.end.getTime() - period.start.getTime()) / (1000 * 60);
-            return total + minutes;
+            const seconds = (period.end.getTime() - period.start.getTime()) / 1000;
+            // Apply capping to prevent unreasonably long durations
+            const { durationSeconds } = capShiftDuration(period.start.getTime(), period.end.getTime());
+            return total + durationSeconds;
           }, 0);
         };
 
@@ -310,24 +314,30 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
           if (!employee || !employee.id) return;
 
           const latestStatus = latestStatusMap.get(employee.id);
-          const totalActiveTime = employeeActivePeriods.has(employee.id)
-            ? calculateTotalMinutes(employeeActivePeriods.get(employee.id)!.periods)
+          const totalActiveSeconds = employeeActivePeriods.has(employee.id)
+            ? calculateTotalSeconds(employeeActivePeriods.get(employee.id)!.periods)
             : 0;
 
-          const totalBreakTime = employeeBreakPeriods.has(employee.id)
-            ? calculateTotalMinutes(employeeBreakPeriods.get(employee.id)!.periods)
+          const totalBreakSeconds = employeeBreakPeriods.has(employee.id)
+            ? calculateTotalSeconds(employeeBreakPeriods.get(employee.id)!.periods)
             : 0;
+
+          // Get all logs for this employee
+          const employeeLogs = todayLogs.filter(log => log.user_id === employee.id);
+
+          // Use our utility function to determine the current status
+          const currentStatus = determineUserStatus(employeeLogs);
 
           if (latestStatus) {
             newEmployeeStatuses.push({
               id: employee.id,
               name: employee.full_name || 'Unnamed',
-              status: latestStatus.status,
-              lastActivity: getActivityLabel(latestStatus.status),
+              status: currentStatus, // Use our utility function instead of latestStatus.status
+              lastActivity: getStatusLabel(currentStatus),
               lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezoneState, 'h:mm a'),
               department_id: employee.department_id || 'unassigned',
-              totalActiveTime: Math.round(totalActiveTime),
-              totalBreakTime: Math.round(totalBreakTime)
+              totalActiveTime: totalActiveSeconds,
+              totalBreakTime: totalBreakSeconds
             });
           } else {
             newEmployeeStatuses.push({
@@ -383,21 +393,17 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     }
   };
 
-  // Helper function to get activity label
-  function getActivityLabel(status: 'signed_in' | 'signed_out' | 'on_break'): string {
-    switch (status) {
-      case 'signed_in': return 'Signed In';
-      case 'signed_out': return 'Signed Out';
-      case 'on_break': return 'On Break';
-    }
-  }
+  // We're now using the imported getStatusLabel function from our utility
 
-  // Helper function to format minutes into hours and minutes
-  function formatMinutes(minutes: number): string {
-    if (minutes === 0) return '0m';
+  // Helper function to format seconds into hours and minutes (to match employee dashboard)
+  function formatSeconds(seconds: number): string {
+    if (seconds === 0) return '0m';
 
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    // Log the input for debugging
+    console.log('Formatting seconds:', seconds);
+
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
 
     if (hours === 0) return `${mins}m`;
     if (mins === 0) return `${hours}h`;
@@ -427,6 +433,16 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     try {
       await refreshDashboardData();
       setLastUpdateTime(new Date());
+
+      // Debug: Log the total active time after refresh
+      console.log('Client-side total active time after refresh:',
+        employeeStatusesState.reduce((total, emp) => total + emp.totalActiveTime, 0));
+
+      // Debug: Log each employee's active time
+      employeeStatusesState.forEach(emp => {
+        console.log(`Employee ${emp.name} active time after refresh: ${emp.totalActiveTime} seconds`);
+      });
+
       toast.success('Dashboard data refreshed');
     } catch (error) {
       toast.error('Failed to refresh dashboard data');
@@ -609,15 +625,35 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                   <div className="bg-green-500/10 rounded-lg p-4">
                     <div className="text-sm text-muted-foreground">Total Active Time (All Employees)</div>
                     <div className="text-2xl font-bold mt-1 text-green-600">
-                      {formatMinutes((isRealTimeEnabled ? employeeStatusesState : employeeStatuses)
-                        .reduce((total, emp) => total + emp.totalActiveTime, 0))}
+                      {(() => {
+                        const totalTime = (isRealTimeEnabled ? employeeStatusesState : employeeStatuses)
+                          .reduce((total, emp) => {
+                            // Ensure totalActiveTime is a valid number and not excessive
+                            const activeTime = typeof emp.totalActiveTime === 'number' &&
+                              !isNaN(emp.totalActiveTime) &&
+                              isFinite(emp.totalActiveTime) ?
+                              Math.min(emp.totalActiveTime, MAX_SHIFT_DURATION_SECONDS) : 0;
+
+                            console.log(`Employee ${emp.name} active time: ${activeTime} (original: ${emp.totalActiveTime})`);
+                            return total + activeTime;
+                          }, 0);
+                        console.log('Total active time on initial load:', totalTime);
+                        return formatSeconds(totalTime);
+                      })()}
                     </div>
                   </div>
                   <div className="bg-amber-500/10 rounded-lg p-4">
                     <div className="text-sm text-muted-foreground">Total Break Time (All Employees)</div>
                     <div className="text-2xl font-bold mt-1 text-amber-600">
-                      {formatMinutes((isRealTimeEnabled ? employeeStatusesState : employeeStatuses)
-                        .reduce((total, emp) => total + emp.totalBreakTime, 0))}
+                      {formatSeconds((isRealTimeEnabled ? employeeStatusesState : employeeStatuses)
+                        .reduce((total, emp) => {
+                          // Ensure totalBreakTime is a valid number and not excessive
+                          const breakTime = typeof emp.totalBreakTime === 'number' &&
+                            !isNaN(emp.totalBreakTime) &&
+                            isFinite(emp.totalBreakTime) ?
+                            Math.min(emp.totalBreakTime, MAX_SHIFT_DURATION_SECONDS) : 0;
+                          return total + breakTime;
+                        }, 0))}
                     </div>
                   </div>
                 </div>
@@ -658,12 +694,12 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
-                              {formatMinutes(employee.totalActiveTime)}
+                              {formatSeconds(employee.totalActiveTime)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
-                              {formatMinutes(employee.totalBreakTime)}
+                              {formatSeconds(employee.totalBreakTime)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
@@ -715,13 +751,27 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                       <div className="bg-green-500/10 rounded-lg p-3">
                         <div className="text-xs text-muted-foreground">Total Active Time</div>
                         <div className="text-lg font-bold mt-1 text-green-600">
-                          {formatMinutes(dept.employees.reduce((total, emp) => total + emp.totalActiveTime, 0))}
+                          {formatSeconds(dept.employees.reduce((total, emp) => {
+                            // Ensure totalActiveTime is a valid number and not excessive
+                            const activeTime = typeof emp.totalActiveTime === 'number' &&
+                              !isNaN(emp.totalActiveTime) &&
+                              isFinite(emp.totalActiveTime) ?
+                              Math.min(emp.totalActiveTime, MAX_SHIFT_DURATION_SECONDS) : 0;
+                            return total + activeTime;
+                          }, 0))}
                         </div>
                       </div>
                       <div className="bg-amber-500/10 rounded-lg p-3">
                         <div className="text-xs text-muted-foreground">Total Break Time</div>
                         <div className="text-lg font-bold mt-1 text-amber-600">
-                          {formatMinutes(dept.employees.reduce((total, emp) => total + emp.totalBreakTime, 0))}
+                          {formatSeconds(dept.employees.reduce((total, emp) => {
+                            // Ensure totalBreakTime is a valid number and not excessive
+                            const breakTime = typeof emp.totalBreakTime === 'number' &&
+                              !isNaN(emp.totalBreakTime) &&
+                              isFinite(emp.totalBreakTime) ?
+                              Math.min(emp.totalBreakTime, MAX_SHIFT_DURATION_SECONDS) : 0;
+                            return total + breakTime;
+                          }, 0))}
                         </div>
                       </div>
                     </div>
@@ -755,12 +805,12 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
-                              {formatMinutes(employee.totalActiveTime)}
+                              {formatSeconds(employee.totalActiveTime)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
-                              {formatMinutes(employee.totalBreakTime)}
+                              {formatSeconds(employee.totalBreakTime)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">

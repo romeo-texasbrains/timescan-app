@@ -40,6 +40,18 @@ const ClientWrapper: React.FC<ClientWrapperProps> = ({ initialData }) => {
         initialData.today = new Date(initialData.today);
       }
 
+      // Debug: Log the total active time from server
+      const totalActiveTime = initialData.employeeStatuses.reduce((total, emp) => total + emp.totalActiveTime, 0);
+      console.log('Server-side total active time:', totalActiveTime, 'seconds');
+      console.log('Server-side total active time formatted:',
+        Math.floor(totalActiveTime / 3600) + 'h ' +
+        Math.floor((totalActiveTime % 3600) / 60) + 'm');
+
+      // Debug: Log each employee's active time
+      initialData.employeeStatuses.forEach(emp => {
+        console.log(`Employee ${emp.name} active time: ${emp.totalActiveTime} seconds`);
+      });
+
       setIsLoading(false);
     } catch (err) {
       console.error('Error in ClientWrapper:', err);

@@ -1,8 +1,9 @@
-// import Link from "next/link";
 import DashboardClient from "@/components/DashboardClient";
 import { createClient } from "@/lib/supabase/server";
-// import { format } from "date-fns";
-
+import { AttendanceProvider } from "@/context/AttendanceContext";
+import { Suspense } from "react";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import { calculateUserAttendanceMetrics } from "@/lib/utils/metrics-calculator";
 
 export default async function TimeScanDashboard() {
   const supabase = await createClient();
@@ -29,13 +30,39 @@ export default async function TimeScanDashboard() {
     console.error("Error fetching timezone setting:", error);
   }
 
-  // Fetch attendance logs for stats and charts
-  const { data: logs } = await supabase
-    .from('attendance_logs')
-    .select('*')
-    .eq('user_id', user?.id)
-    .order('timestamp', { ascending: false })
-    .limit(30);
+  // Fetch initial metrics from the API instead of raw logs
+  let initialMetrics = null;
+  let initialLogs = [];
+
+  try {
+    if (user?.id) {
+      // Fetch ALL logs for the user, not just today's logs
+      const { data: logs, error: logsError } = await supabase
+        .from('attendance_logs')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('timestamp', { ascending: true });
+
+      if (logsError) {
+        console.error('Error fetching attendance logs:', logsError);
+        throw logsError;
+      }
+
+      console.log(`Fetched ${logs?.length || 0} attendance logs for user ${user.id}`);
+
+      // Calculate metrics directly using the utility function
+      initialLogs = logs || [];
+      initialMetrics = calculateUserAttendanceMetrics(initialLogs, timezone, user.id);
+
+      console.log('Server-side metrics calculated successfully:', initialMetrics);
+    } else {
+      console.warn('No user ID available for metrics calculation');
+    }
+  } catch (error) {
+    console.error('Error calculating metrics:', error);
+    // Set initialMetrics to null to trigger client-side calculation
+    initialMetrics = null;
+  }
 
   // Fetch user profile with department info
   const { data: profile } = await supabase
@@ -56,10 +83,20 @@ export default async function TimeScanDashboard() {
     departmentName = department?.name || null;
   }
 
-  return <DashboardClient
-    logs={logs || []}
-    userProfile={profile || null}
-    departmentName={departmentName}
-    timezone={timezone}
-  />;
+  return (
+    <Suspense fallback={<div className="flex justify-center items-center min-h-screen"><LoadingSpinner size="lg" /></div>}>
+      <AttendanceProvider
+        initialLogs={initialLogs}
+        initialMetrics={initialMetrics}
+        userId={user?.id || ''}
+        timezone={timezone}
+      >
+        <DashboardClient
+          userProfile={profile || null}
+          departmentName={departmentName}
+          timezone={timezone}
+        />
+      </AttendanceProvider>
+    </Suspense>
+  );
 }
