@@ -7,6 +7,32 @@
   "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "portrait",
+  "id": "/",
+  "scope": "/",
+  "categories": ["business", "productivity", "utilities"],
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "handle_links": "preferred",
+  "shortcuts": [
+    {
+      "name": "Scan QR Code",
+      "short_name": "Scan",
+      "description": "Scan a QR code to punch in/out",
+      "url": "/scan",
+      "icons": [{ "src": "/icons/txb icon-6.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "View History",
+      "short_name": "History",
+      "description": "View your attendance history",
+      "url": "/history",
+      "icons": [{ "src": "/icons/txb icon-6.png", "sizes": "192x192" }]
+    }
+  ],
   "icons": [
     {
       "src": "/icons/txb icon-1.png",
@@ -66,17 +92,39 @@
   "screenshots": [
     {
       "src": "/screenshots/desktop.png",
-      "sizes": "1280x720",
+      "sizes": "1280x800",
       "type": "image/png",
       "form_factor": "wide",
       "label": "TimeScan Dashboard"
     },
     {
+      "src": "/screenshots/desktop-history.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Attendance History"
+    },
+    {
       "src": "/screenshots/mobile.png",
-      "sizes": "720x1280",
+      "sizes": "750x1334",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "TimeScan Mobile View"
+    },
+    {
+      "src": "/screenshots/mobile-scan.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "QR Code Scanner"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "protocol_handlers": [
+    {
+      "protocol": "web+timescan",
+      "url": "/?action=%s"
     }
   ]
 }

@@ -5,59 +5,227 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TimeScan - Offline</title>
     <style>
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --background: #000000;
+            --card: #111111;
+            --border: #333333;
+            --text: #ffffff;
+            --text-muted: #a3a3a3;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            background-color: #000;
-            color: #fff;
+            background-color: var(--background);
+            color: var(--text);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
             padding: 20px;
             text-align: center;
         }
+
         .container {
             max-width: 500px;
-            padding: 20px;
-            border-radius: 10px;
-            background-color: rgba(255, 255, 255, 0.1);
+            padding: 24px;
+            border-radius: 12px;
+            background-color: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
+
         h1 {
             font-size: 24px;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
+            font-weight: 600;
         }
+
         p {
             font-size: 16px;
-            line-height: 1.5;
+            line-height: 1.6;
             margin-bottom: 20px;
+            color: var(--text-muted);
         }
+
         .icon {
             font-size: 64px;
             margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+
+        .icon svg {
+            width: 64px;
+            height: 64px;
+        }
+
         .button {
-            background-color: #fff;
-            color: #000;
+            background-color: var(--primary);
+            color: white;
             border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
+            padding: 12px 24px;
+            border-radius: 6px;
             font-size: 16px;
+            font-weight: 500;
             cursor: pointer;
-            transition: background-color 0.3s;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
+
         .button:hover {
-            background-color: #eee;
+            background-color: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .button svg {
+            margin-right: 8px;
+            width: 18px;
+            height: 18px;
+        }
+
+        .tips {
+            margin-top: 32px;
+            padding: 16px;
+            border-radius: 8px;
+            background-color: rgba(255, 255, 255, 0.05);
+            text-align: left;
+        }
+
+        .tips h2 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .tips ul {
+            padding-left: 20px;
+            margin: 0;
+        }
+
+        .tips li {
+            margin-bottom: 8px;
+            color: var(--text-muted);
+        }
+
+        .status {
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .logo {
+            margin-bottom: 24px;
+        }
+
+        .logo img {
+            width: 80px;
+            height: 80px;
+            border-radius: 12px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="icon">⏱️</div>
+        <div class="logo">
+            <img src="/icons/txb icon-6.png" alt="TimeScan Logo" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%230ea5e9%22 stroke-width=%222%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22/><path d=%22M12 6v6l4 2%22/></svg>';">
+        </div>
+
         <h1>You're Offline</h1>
-        <p>TimeScan requires an internet connection to track attendance. Please check your connection and try again.</p>
-        <button class="button" onclick="window.location.reload()">Try Again</button>
+        <p>TimeScan requires an internet connection to track attendance. We'll automatically reconnect when you're back online.</p>
+
+        <button class="button" onclick="checkConnection()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 2v6h-6"></path>
+                <path d="M3 12a9 9 0 0 1 15-6.7l3-3"></path>
+                <path d="M3 22v-6h6"></path>
+                <path d="M21 12a9 9 0 0 1-15 6.7l-3 3"></path>
+            </svg>
+            Try Again
+        </button>
+
+        <div class="status" id="connection-status">
+            Checking connection...
+        </div>
+
+        <div class="tips">
+            <h2>While you're offline:</h2>
+            <ul>
+                <li>Check your internet connection</li>
+                <li>Make sure your device is not in airplane mode</li>
+                <li>Try moving to an area with better signal</li>
+                <li>If you're on WiFi, try switching to mobile data</li>
+            </ul>
+        </div>
     </div>
+
+    <script>
+        // Update connection status
+        function updateStatus(isOnline) {
+            const statusEl = document.getElementById('connection-status');
+            if (isOnline) {
+                statusEl.textContent = 'Connected! Redirecting...';
+                statusEl.style.color = '#10b981'; // green
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            } else {
+                statusEl.textContent = 'Still offline. Please check your connection.';
+                statusEl.style.color = '#ef4444'; // red
+                statusEl.classList.add('pulse');
+            }
+        }
+
+        // Check connection
+        function checkConnection() {
+            const statusEl = document.getElementById('connection-status');
+            statusEl.textContent = 'Checking connection...';
+            statusEl.style.color = '#f59e0b'; // amber
+            statusEl.classList.remove('pulse');
+
+            // Try to fetch a small resource to check connection
+            fetch('/manifest.json', { cache: 'no-store' })
+                .then(() => {
+                    updateStatus(true);
+                })
+                .catch(() => {
+                    updateStatus(false);
+                });
+        }
+
+        // Check connection on page load
+        checkConnection();
+
+        // Listen for online/offline events
+        window.addEventListener('online', () => {
+            updateStatus(true);
+        });
+
+        window.addEventListener('offline', () => {
+            updateStatus(false);
+        });
+    </script>
 </body>
 </html>

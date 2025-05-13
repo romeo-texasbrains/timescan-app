@@ -9,6 +9,12 @@ import MainContentWrapper from '@/components/MainContentWrapper' // Import the n
 import LoadingProvider from '@/context/LoadingContext' // Import the Loading Provider
 import ClientErrorHandler from '@/components/ClientErrorHandler' // Import the client error handler wrapper
 import BirthdayProvider from '@/components/birthday/BirthdayProvider' // Import the birthday provider
+import dynamic from 'next/dynamic'
+
+// Dynamically import client-only components with no SSR
+const InstallPrompt = dynamic(() => import('@/components/InstallPrompt'), { ssr: false })
+const NetworkStatus = dynamic(() => import('@/components/NetworkStatus'), { ssr: false })
+const UpdateNotification = dynamic(() => import('@/components/UpdateNotification'), { ssr: false })
 
 // Define role type here as well
 type UserRole = 'user' | 'manager' | 'admin';
@@ -93,6 +99,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <LoadingProvider>
       <div className="min-h-screen bg-background flex">
+        {/* Network status indicator */}
+        <NetworkStatus />
+
+        {/* Update notification */}
+        <UpdateNotification />
+
         {/* Client-side error handler to catch unhandled errors */}
         <ClientErrorHandler />
 
@@ -106,6 +118,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <MainContentWrapper userEmail={userEmail} timezone={timezone} role={userRole}>
             {/* Birthday notifications */}
             <BirthdayProvider />
+
+            {/* PWA Install Prompt */}
+            <InstallPrompt />
 
             <div className="mobile-spacing">
               {children}
