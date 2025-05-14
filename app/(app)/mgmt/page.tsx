@@ -179,19 +179,24 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
   // Combine the current user with team members, ensuring managerFullProfile is defined
   const employees = managerFullProfile ? [managerFullProfile, ...employeeProfiles] : [...employeeProfiles];
 
-  // Get department info
+  // Get department info with shift settings
   const { data: departments, error: departmentsError } = await supabase
     .from('departments')
-    .select('id, name')
+    .select('id, name, shift_start_time, shift_end_time, grace_period_minutes')
 
   if (departmentsError) {
     console.error('Error fetching departments:', departmentsError)
   }
 
-  // Create a map of department IDs to names
-  const departmentMap = new Map<string, string>()
+  // Create a map of department IDs to department info
+  const departmentMap = new Map<string, any>()
   departments?.forEach(dept => {
-    departmentMap.set(dept.id, dept.name)
+    departmentMap.set(dept.id, {
+      name: dept.name,
+      shift_start_time: dept.shift_start_time || '09:00:00',
+      shift_end_time: dept.shift_end_time || '17:00:00',
+      grace_period_minutes: dept.grace_period_minutes || 30
+    })
   })
 
   // Get today's logs count
@@ -325,10 +330,72 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
         logsByUser[log.user_id].push(log);
       });
 
+      // Fetch adherence status for all employees for today
+      const { data: adherenceData, error: adherenceError } = await supabase
+        .from('attendance_adherence')
+        .select('*')
+        .eq('date', todayStr);
+
+      if (adherenceError) {
+        console.error('Error fetching adherence data:', adherenceError);
+      }
+
+      // Create a map of user IDs to adherence status
+      const userAdherenceMap = new Map();
+      adherenceData?.forEach(record => {
+        userAdherenceMap.set(record.user_id, record);
+      });
+
       // Calculate metrics for each employee
-      employeeStatuses = employeesInDepartment.map(employee => {
+      employeeStatuses = await Promise.all(employeesInDepartment.map(async employee => {
         const userLogs = logsByUser[employee.id] || [];
         const metrics = calculateUserAttendanceMetrics(userLogs, timezone, employee.id);
+
+        // Get adherence data for this employee
+        let adherence = userAdherenceMap.get(employee.id);
+
+        // If no adherence record exists, calculate it
+        if (!adherence) {
+          try {
+            const { data: adherenceStatus, error: calcError } = await supabase
+              .rpc('calculate_adherence_status', {
+                p_user_id: employee.id,
+                p_date: todayStr
+              });
+
+            if (calcError) {
+              console.error(`Error calculating adherence for ${employee.id}:`, calcError);
+            } else if (adherenceStatus) {
+              adherence = {
+                user_id: employee.id,
+                date: todayStr,
+                status: adherenceStatus
+              };
+            }
+          } catch (error) {
+            console.error(`Error calculating adherence for ${employee.id}:`, error);
+          }
+        }
+
+        // Check absent eligibility for late employees
+        let eligibleForAbsent = false;
+        if (adherence?.status === 'late') {
+          try {
+            const { data: eligibility, error: eligibilityError } = await supabase
+              .rpc('check_absent_eligibility', {
+                p_user_id: employee.id,
+                p_date: todayStr
+              });
+
+            if (eligibilityError) {
+              console.error(`Error checking absent eligibility for ${employee.id}:`, eligibilityError);
+            } else {
+              eligibleForAbsent = eligibility;
+            }
+          } catch (error) {
+            console.error(`Error checking absent eligibility for ${employee.id}:`, error);
+          }
+        }
 
         return {
           id: employee.id,
@@ -342,9 +409,11 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
           lastActivityTime: metrics.lastActivity ?
             formatInTimeZone(parseISO(metrics.lastActivity.timestamp), timezone, 'h:mm a') : '',
           totalActiveTime: metrics.workTime, // Keep as seconds to match client-side
-          totalBreakTime: metrics.breakTime  // Keep as seconds to match client-side
+          totalBreakTime: metrics.breakTime,  // Keep as seconds to match client-side
+          adherence: adherence?.status || null,
+          eligible_for_absent: eligibleForAbsent
         };
-      });
+      }));
 
         // Count active employees
         activeEmployeeCount = employeeStatuses.filter(emp => emp.status !== 'signed_out').length;
@@ -356,15 +425,30 @@ async function getManagerDashboardData(supabase, user, managerProfile) {
     }
   }
 
-  // Sort employee statuses: active first, then by name
-  employeeStatuses.sort((a, b) => {
-    // Active employees first
-    if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
-    if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
+  // Sort employee statuses: active first, then by name - with robust error handling
+  try {
+    employeeStatuses.sort((a, b) => {
+      try {
+        // Active employees first
+        if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
+        if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
 
-    // Then sort by name
-    return a.name.localeCompare(b.name);
-  });
+        // Then sort by name - with defensive programming
+        // Ensure both names are strings
+        const nameA = typeof a.name === 'string' ? a.name : String(a.name || a.id || '');
+        const nameB = typeof b.name === 'string' ? b.name : String(b.name || b.id || '');
+
+        // Use simple string comparison instead of localeCompare
+        return nameA > nameB ? 1 : nameA < nameB ? -1 : 0;
+      } catch (innerError) {
+        console.error('Error comparing employees:', innerError, { a, b });
+        return 0; // Keep original order if comparison fails
+      }
+    });
+  } catch (sortError) {
+    console.error('Error sorting employees:', sortError);
+    // If sorting fails, at least we still have the unsorted array
+  }
 
   // activeEmployeeCount is now set in the API fetch section
 

@@ -14,6 +14,10 @@ type AttendanceLog = Database['public']['Tables']['attendance_logs']['Row'];
 interface AttendanceContextType {
   logs: AttendanceLog[];
   metrics: AttendanceMetrics;
+  adherence: {
+    status: string | null;
+    eligible_for_absent: boolean;
+  };
   isLoading: boolean;
   lastUpdateTime: Date | null;
   isRealTimeEnabled: boolean;
@@ -37,6 +41,10 @@ const defaultMetrics: AttendanceMetrics = {
 const AttendanceContext = createContext<AttendanceContextType>({
   logs: [],
   metrics: defaultMetrics,
+  adherence: {
+    status: null,
+    eligible_for_absent: false
+  },
   isLoading: true,
   lastUpdateTime: null,
   isRealTimeEnabled: true,
@@ -77,6 +85,10 @@ export const AttendanceProvider: React.FC<AttendanceProviderProps> = ({
 }) => {
   const [logs, setLogs] = useState<AttendanceLog[]>(initialLogs);
   const [metrics, setMetrics] = useState<AttendanceMetrics>(initialMetrics || defaultMetrics);
+  const [adherence, setAdherence] = useState<{ status: string | null; eligible_for_absent: boolean }>({
+    status: null,
+    eligible_for_absent: false
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(true);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(new Date());
@@ -214,6 +226,49 @@ export const AttendanceProvider: React.FC<AttendanceProviderProps> = ({
         metricsData.overtimeSeconds = Math.max(0, metricsData.workTime - (8 * 3600));
       }
 
+      // Fetch adherence status
+      try {
+        const today = format(new Date(), 'yyyy-MM-dd');
+
+        // First check if there's an existing adherence record
+        const { data: adherenceData, error: adherenceError } = await supabase
+          .from('attendance_adherence')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('date', today)
+          .single();
+
+        if (adherenceError && adherenceError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+          console.error('Error fetching adherence data:', adherenceError);
+        }
+
+        if (adherenceData) {
+          // Use existing adherence record
+          setAdherence({
+            status: adherenceData.status,
+            eligible_for_absent: false // Users can't mark themselves absent
+          });
+        } else {
+          // Calculate adherence on-the-fly
+          const { data: adherenceStatus, error: calcError } = await supabase
+            .rpc('calculate_adherence_status', {
+              p_user_id: userId,
+              p_date: today
+            });
+
+          if (calcError) {
+            console.error('Error calculating adherence status:', calcError);
+          } else {
+            setAdherence({
+              status: adherenceStatus,
+              eligible_for_absent: false // Users can't mark themselves absent
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching adherence data:', error);
+      }
+
       setMetrics(metricsData);
       setLastUpdateTime(new Date());
 
@@ -238,6 +293,7 @@ export const AttendanceProvider: React.FC<AttendanceProviderProps> = ({
       value={{
         logs,
         metrics,
+        adherence,
         isLoading,
         lastUpdateTime,
         isRealTimeEnabled,

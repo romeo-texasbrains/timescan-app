@@ -16,6 +16,105 @@ type UpdateAttendanceData = {
   logs: AttendanceLogUpdate[];
 };
 
+type MarkAbsentData = {
+  userId: string;
+  date: string;
+  markAbsent: boolean;
+};
+
+export async function markEmployeeAbsent(data: MarkAbsentData) {
+  try {
+    const supabase = await createClient();
+
+    // Check authorization
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { success: false, message: 'Unauthorized' };
+    }
+
+    // Verify user is admin or manager
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role, department_id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      console.error('Error fetching user profile:', profileError);
+      return { success: false, message: 'Error fetching user profile' };
+    }
+
+    if (profile.role !== 'admin' && profile.role !== 'manager') {
+      return { success: false, message: 'Unauthorized access' };
+    }
+
+    // For managers, verify they can edit this employee (same department)
+    if (profile.role === 'manager') {
+      // Check if employee is in the manager's department
+      const { data: employeeProfile, error: employeeError } = await supabase
+        .from('profiles')
+        .select('department_id')
+        .eq('id', data.userId)
+        .single();
+
+      if (employeeError) {
+        console.error('Error fetching employee profile:', employeeError);
+        return { success: false, message: 'Error fetching employee profile' };
+      }
+
+      if (employeeProfile.department_id !== profile.department_id) {
+        return { success: false, message: 'You can only mark employees in your department as absent' };
+      }
+    }
+
+    // Check if the user is eligible to be marked absent
+    if (data.markAbsent) {
+      const { data: eligibility, error: eligibilityError } = await supabase
+        .rpc('check_absent_eligibility', {
+          p_user_id: data.userId,
+          p_date: data.date
+        });
+
+      if (eligibilityError) {
+        console.error('Error checking absent eligibility:', eligibilityError);
+        return { success: false, message: 'Error checking absent eligibility' };
+      }
+
+      if (!eligibility) {
+        return { success: false, message: 'Employee is not eligible to be marked absent' };
+      }
+    }
+
+    // Update or insert the adherence record
+    const { error } = await supabase
+      .from('attendance_adherence')
+      .upsert({
+        user_id: data.userId,
+        date: data.date,
+        status: data.markAbsent ? 'absent' : 'late', // If not marking absent, revert to late
+        marked_by: user.id,
+        updated_at: new Date().toISOString()
+      });
+
+    if (error) {
+      console.error('Error updating adherence status:', error);
+      return { success: false, message: 'Error updating adherence status' };
+    }
+
+    // Revalidate relevant paths
+    revalidatePath('/admin/dashboard');
+    revalidatePath('/mgmt');
+
+    return {
+      success: true,
+      message: data.markAbsent ? 'Employee marked as absent' : 'Employee marked as late'
+    };
+  } catch (error) {
+    console.error('Error in markEmployeeAbsent:', error);
+    return { success: false, message: 'An unexpected error occurred' };
+  }
+}
+
 export async function updateAttendanceLogs(data: UpdateAttendanceData) {
   try {
     const supabase = await createClient();

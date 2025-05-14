@@ -13,6 +13,7 @@ import { useTimezone } from '@/context/TimezoneContext'; // Correctly import the
 import { useMediaQuery } from '@/hooks/useMediaQuery'; // Import useMediaQuery hook
 import { useAttendance } from '@/context/AttendanceContext'; // Import the attendance context hook
 import { determineUserStatus, getLastActivity } from '@/lib/utils/statusDetermination';
+import AdherenceBadge from '@/components/AdherenceBadge';
 import {
   ResponsiveTable,
   ResponsiveTableHeader,
@@ -253,6 +254,7 @@ export default function DashboardClient({
   const {
     logs,
     metrics,
+    adherence,
     isLoading,
     lastUpdateTime,
     isRealTimeEnabled,
@@ -1046,6 +1048,14 @@ export default function DashboardClient({
         {departmentName && (
           <div className="w-full mb-4 p-2 bg-primary/10 rounded-lg flex items-center justify-center">
             <span className="text-sm text-primary font-medium">Department: {departmentName}</span>
+          </div>
+        )}
+
+        {/* Adherence Status */}
+        {adherence.status && (
+          <div className="w-full mb-4 p-2 bg-primary/10 rounded-lg flex flex-col items-center justify-center gap-2">
+            <span className="text-sm text-primary font-medium">Today's Adherence</span>
+            <AdherenceBadge status={adherence.status as any} />
           </div>
         )}
 

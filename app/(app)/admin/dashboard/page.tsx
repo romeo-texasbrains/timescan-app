@@ -46,20 +46,25 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
     console.error("Error fetching timezone setting:", error);
   }
 
-  // Get all departments
+  // Get all departments with shift settings
   const { data: departments, error: departmentsError } = await supabase
     .from('departments')
-    .select('id, name')
+    .select('id, name, shift_start_time, shift_end_time, grace_period_minutes')
     .order('name')
 
   if (departmentsError) {
     console.error('Error fetching departments:', departmentsError)
   }
 
-  // Create a map of department IDs to names
-  const departmentMap = new Map<string, string>()
+  // Create a map of department IDs to department info
+  const departmentMap = new Map<string, any>()
   departments?.forEach(dept => {
-    departmentMap.set(dept.id, dept.name)
+    departmentMap.set(dept.id, {
+      name: dept.name,
+      shift_start_time: dept.shift_start_time || '09:00:00',
+      shift_end_time: dept.shift_end_time || '17:00:00',
+      grace_period_minutes: dept.grace_period_minutes || 30
+    })
   })
 
   // Get all employees (excluding the current admin user)
@@ -135,15 +140,79 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
 
       // Calculate metrics for each employee
       const userMetricsMap = new Map();
-      allEmployees.forEach(employee => {
+      const userAdherenceMap = new Map();
+
+      // Fetch adherence status for all employees for today
+      const { data: adherenceData, error: adherenceError } = await supabase
+        .from('attendance_adherence')
+        .select('*')
+        .eq('date', todayStr);
+
+      if (adherenceError) {
+        console.error('Error fetching adherence data:', adherenceError);
+      } else {
+        // Create a map of user IDs to adherence status
+        adherenceData?.forEach(record => {
+          userAdherenceMap.set(record.user_id, record);
+        });
+      }
+
+      // For employees without adherence records, calculate it
+      for (const employee of allEmployees) {
+        // Calculate metrics
         const userLogs = logsByUser[employee.id] || [];
         const metrics = calculateUserAttendanceMetrics(userLogs, timezone, employee.id);
         userMetricsMap.set(employee.id, metrics);
-      });
+
+        // If no adherence record exists, calculate it
+        if (!userAdherenceMap.has(employee.id)) {
+          try {
+            const { data: adherenceStatus, error: calcError } = await supabase
+              .rpc('calculate_adherence_status', {
+                p_user_id: employee.id,
+                p_date: todayStr
+              });
+
+            if (calcError) {
+              console.error(`Error calculating adherence for ${employee.id}:`, calcError);
+            } else if (adherenceStatus) {
+              userAdherenceMap.set(employee.id, {
+                user_id: employee.id,
+                date: todayStr,
+                status: adherenceStatus
+              });
+            }
+          } catch (error) {
+            console.error(`Error calculating adherence for ${employee.id}:`, error);
+          }
+        }
+
+        // Check absent eligibility for late employees
+        const adherence = userAdherenceMap.get(employee.id);
+        if (adherence?.status === 'late') {
+          try {
+            const { data: eligibility, error: eligibilityError } = await supabase
+              .rpc('check_absent_eligibility', {
+                p_user_id: employee.id,
+                p_date: todayStr
+              });
+
+            if (eligibilityError) {
+              console.error(`Error checking absent eligibility for ${employee.id}:`, eligibilityError);
+            } else {
+              // Add eligibility to the adherence record
+              adherence.eligible_for_absent = eligibility;
+            }
+          } catch (error) {
+            console.error(`Error checking absent eligibility for ${employee.id}:`, error);
+          }
+        }
+      }
 
         // Create employee status objects
         employeeStatuses = allEmployees.map(employee => {
           const metrics = userMetricsMap.get(employee.id);
+          const adherence = userAdherenceMap.get(employee.id);
 
           if (metrics) {
             return {
@@ -159,7 +228,9 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
                 formatInTimeZone(parseISO(metrics.lastActivity.timestamp), timezone, 'h:mm a') : '',
               department_id: employee.department_id || 'unassigned',
               totalActiveTime: metrics.workTime, // Keep as seconds to match client-side
-              totalBreakTime: metrics.breakTime  // Keep as seconds to match client-side
+              totalBreakTime: metrics.breakTime,  // Keep as seconds to match client-side
+              adherence: adherence?.status || null,
+              eligible_for_absent: adherence?.eligible_for_absent || false
             };
           } else {
             return {
@@ -170,7 +241,9 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
               lastActivityTime: '',
               department_id: employee.department_id || 'unassigned',
               totalActiveTime: 0,
-              totalBreakTime: 0
+              totalBreakTime: 0,
+              adherence: adherence?.status || null,
+              eligible_for_absent: adherence?.eligible_for_absent || false
             };
           }
         });
@@ -189,20 +262,37 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
         lastActivityTime: '',
         department_id: employee.department_id || 'unassigned',
         totalActiveTime: 0,
-        totalBreakTime: 0
+        totalBreakTime: 0,
+        adherence: null,
+        eligible_for_absent: false
       }));
     }
   }
 
-  // Sort employee statuses: active first, then by name
-  employeeStatuses.sort((a, b) => {
-    // Active employees first
-    if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
-    if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
+  // Sort employee statuses: active first, then by name - with robust error handling
+  try {
+    employeeStatuses.sort((a, b) => {
+      try {
+        // Active employees first
+        if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
+        if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
 
-    // Then sort by name
-    return a.name.localeCompare(b.name);
-  });
+        // Then sort by name - with defensive programming
+        // Ensure both names are strings
+        const nameA = typeof a.name === 'string' ? a.name : String(a.name || a.id || '');
+        const nameB = typeof b.name === 'string' ? b.name : String(b.name || b.id || '');
+
+        // Use simple string comparison instead of localeCompare
+        return nameA > nameB ? 1 : nameA < nameB ? -1 : 0;
+      } catch (innerError) {
+        console.error('Error comparing employees:', innerError, { a, b });
+        return 0; // Keep original order if comparison fails
+      }
+    });
+  } catch (sortError) {
+    console.error('Error sorting employees:', sortError);
+    // If sorting fails, at least we still have the unsorted array
+  }
 
   // activeEmployeeCount is now set in the API fetch section
 
@@ -229,11 +319,71 @@ async function getAdminDashboardData(supabase, user, adminProfile) {
 
   // We're now using the imported getStatusLabel function from our utility
 
-  // Convert departmentMap to a regular object for serialization
-  const departmentMapObj: Record<string, string> = {};
-  departmentMap.forEach((name, id) => {
-    departmentMapObj[id] = name;
-  });
+  // Convert departmentMap to a regular object for serialization with robust error handling
+  const departmentMapObj: Record<string, any> = {};
+
+  try {
+    // Process each department with validation
+    departmentMap.forEach((deptInfo, id) => {
+      if (!id) return; // Skip if ID is missing
+
+      try {
+        // Default department structure
+        const sanitizedDept = {
+          name: 'Unknown Department',
+          shift_start_time: null,
+          shift_end_time: null,
+          grace_period_minutes: 30
+        };
+
+        // Extract and validate department info
+        if (deptInfo) {
+          // Handle name with validation
+          if (deptInfo.name !== undefined && deptInfo.name !== null) {
+            sanitizedDept.name = String(deptInfo.name);
+          } else {
+            sanitizedDept.name = `Department ${id}`;
+          }
+
+          // Handle other properties
+          if (deptInfo.shift_start_time) sanitizedDept.shift_start_time = deptInfo.shift_start_time;
+          if (deptInfo.shift_end_time) sanitizedDept.shift_end_time = deptInfo.shift_end_time;
+          if (typeof deptInfo.grace_period_minutes === 'number') {
+            sanitizedDept.grace_period_minutes = deptInfo.grace_period_minutes;
+          }
+        }
+
+        // Store the sanitized department
+        departmentMapObj[id] = sanitizedDept;
+      } catch (deptError) {
+        console.error(`Error processing department ${id}:`, deptError);
+        // Add a fallback department entry
+        departmentMapObj[id] = {
+          name: `Department ${id}`,
+          shift_start_time: null,
+          shift_end_time: null,
+          grace_period_minutes: 30
+        };
+      }
+    });
+
+    // Add special handling for 'unassigned' department
+    departmentMapObj['unassigned'] = {
+      name: 'Unassigned',
+      shift_start_time: null,
+      shift_end_time: null,
+      grace_period_minutes: 30
+    };
+  } catch (error) {
+    console.error('Error creating department map object:', error);
+    // Ensure we at least have the unassigned department
+    departmentMapObj['unassigned'] = {
+      name: 'Unassigned',
+      shift_start_time: null,
+      shift_end_time: null,
+      grace_period_minutes: 30
+    };
+  }
 
   return {
     employeeStatuses,

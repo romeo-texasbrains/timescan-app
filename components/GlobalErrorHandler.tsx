@@ -30,6 +30,53 @@ export default function GlobalErrorHandler() {
 
       // Check if the error is related to the QR scanner or DOM
       const errorMessage = event.error?.toString() || '';
+
+      // CRITICAL FIX: Handle known errors specifically
+      if (errorMessage.includes('localeCompare is not a function') ||
+          errorMessage.includes('a.name.localeCompare is not a function')) {
+        console.error('Caught localeCompare error - this is a known issue with department sorting');
+
+        // Prevent the default error handling to avoid crashing the app
+        event.preventDefault();
+
+        // Set a flag in localStorage to indicate we've seen this error
+        try {
+          localStorage.setItem('localeCompareErrorSeen', 'true');
+        } catch (e) {
+          // Ignore localStorage errors
+        }
+
+        // Try to reload the page after a short delay
+        setTimeout(() => {
+          try {
+            window.location.reload();
+          } catch (reloadError) {
+            console.error('Failed to reload after localeCompare error:', reloadError);
+          }
+        }, 1000);
+
+        return true;
+      }
+
+      // Handle "Objects are not valid as a React child" error
+      if (errorMessage.includes('Objects are not valid as a React child')) {
+        console.error('Caught "Objects are not valid as a React child" error - this is likely due to trying to render an object directly');
+
+        // Prevent the default error handling to avoid crashing the app
+        event.preventDefault();
+
+        // Try to reload the page after a short delay
+        setTimeout(() => {
+          try {
+            window.location.reload();
+          } catch (reloadError) {
+            console.error('Failed to reload after React child error:', reloadError);
+          }
+        }, 1000);
+
+        return true;
+      }
+
       const isQrScannerError =
         errorMessage.includes('removeChild') ||
         errorMessage.includes('Node') ||

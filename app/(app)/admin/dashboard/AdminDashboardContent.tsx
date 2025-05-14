@@ -7,6 +7,8 @@ import { ChartBarIcon, DocumentTextIcon, UsersIcon, ClockIcon, BuildingOfficeIco
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { capShiftDuration, MAX_SHIFT_DURATION_SECONDS } from '@/lib/shift-utils';
+import AdherenceBadge from '@/components/AdherenceBadge';
+import AbsentMarkingButton from '@/components/AbsentMarkingButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -25,6 +27,10 @@ type EmployeeStatus = {
   lastActivity: string;
   lastActivityTime: string;
   department_id: string;
+  totalActiveTime?: number;
+  totalBreakTime?: number;
+  adherence?: 'early' | 'on_time' | 'late' | 'absent' | null;
+  eligible_for_absent?: boolean;
 };
 
 interface AdminDashboardContentProps {
@@ -410,23 +416,144 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     return `${hours}h ${mins}m`;
   }
 
-  // Convert object to array for rendering - ensure it's client-side only
-  const departmentsArray = isClient ? Object.entries(
-    isRealTimeEnabled ? employeesByDepartmentState : employeesByDepartment
-  ).map(([id, employees]) => ({
-    id,
-    name: id === 'unassigned' ? 'Unassigned' :
-          (isRealTimeEnabled ? departmentMapState[id] : departmentMap[id]) || 'Unknown',
-    employees
-  })) : [];
+  // Add detailed debugging for department map
+  console.log('AdminDashboardContent: Initial departmentMap type:', typeof departmentMap);
+  console.log('AdminDashboardContent: Initial departmentMapState type:', typeof departmentMapState);
 
-  // Sort departments by name
-  departmentsArray.sort((a, b) => {
-    // Always put "Unassigned" at the end
-    if (a.id === 'unassigned') return 1;
-    if (b.id === 'unassigned') return -1;
-    return a.name.localeCompare(b.name);
-  });
+  // Log the actual department map content
+  if (departmentMap && typeof departmentMap === 'object') {
+    console.log('AdminDashboardContent: departmentMap entries:');
+    Object.entries(departmentMap).forEach(([id, dept]) => {
+      console.log(`Department ID: ${id}, Type: ${typeof dept}, Value:`, dept);
+
+      if (typeof dept === 'object' && dept !== null) {
+        console.log(`  - name: ${dept.name} (type: ${typeof dept.name})`);
+        if (dept.name === undefined || dept.name === null) {
+          console.warn(`  - WARNING: Department ${id} has null/undefined name!`);
+        }
+      }
+    });
+  }
+
+  // Convert object to array for rendering - ensure it's client-side only
+  const departmentsArray = isClient ? (() => {
+    try {
+      // Get the appropriate data source
+      const employeesByDept = isRealTimeEnabled ? employeesByDepartmentState : employeesByDepartment;
+      const deptMap = isRealTimeEnabled ? departmentMapState : departmentMap;
+
+      console.log('Creating departmentsArray with:',
+        'isRealTimeEnabled=', isRealTimeEnabled,
+        'deptMap type=', typeof deptMap);
+
+      if (!employeesByDept || typeof employeesByDept !== 'object') {
+        console.error('Invalid employeesByDepartment data:', employeesByDept);
+        return []; // Return empty array if data is invalid
+      }
+
+      // Create department array with robust error handling
+      const result = Object.entries(employeesByDept).map(([id, employees]) => {
+        // Default department name
+        let departmentName = id === 'unassigned' ? 'Unassigned' : `Department ${id}`;
+        let shiftStartTime = null;
+        let shiftEndTime = null;
+        let gracePeriodMinutes = 30;
+
+        try {
+          // Get department info if available
+          if (deptMap && typeof deptMap === 'object') {
+            const deptInfo = deptMap[id];
+
+            if (deptInfo) {
+              // Handle string department names
+              if (typeof deptInfo === 'string') {
+                departmentName = deptInfo;
+              }
+              // Handle object department info
+              else if (typeof deptInfo === 'object' && deptInfo !== null) {
+                // Extract name with validation
+                if ('name' in deptInfo && deptInfo.name !== null && deptInfo.name !== undefined) {
+                  departmentName = String(deptInfo.name);
+                }
+
+                // Extract other properties
+                if ('shift_start_time' in deptInfo) shiftStartTime = deptInfo.shift_start_time;
+                if ('shift_end_time' in deptInfo) shiftEndTime = deptInfo.shift_end_time;
+                if ('grace_period_minutes' in deptInfo &&
+                    typeof deptInfo.grace_period_minutes === 'number') {
+                  gracePeriodMinutes = deptInfo.grace_period_minutes;
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`Error processing department ${id}:`, error);
+          // Use default values set above
+        }
+
+        // ULTRA-SIMPLE: Create department object with minimal processing
+        // Just use the ID as the name if all else fails
+        const deptObj = {
+          id,
+          name: String(id), // Default to ID as string
+          shift_start_time: null,
+          shift_end_time: null,
+          grace_period_minutes: 30,
+          employees: Array.isArray(employees) ? employees : [] // Ensure employees is always an array
+        };
+
+        // Try to set a better name if available
+        if (id === 'unassigned') {
+          deptObj.name = 'Unassigned';
+        } else if (typeof departmentName === 'string' && departmentName.trim() !== '') {
+          deptObj.name = departmentName;
+        } else {
+          deptObj.name = `Department ${id}`;
+        }
+
+        // Set other properties if available
+        if (shiftStartTime !== null) deptObj.shift_start_time = shiftStartTime;
+        if (shiftEndTime !== null) deptObj.shift_end_time = shiftEndTime;
+        if (typeof gracePeriodMinutes === 'number') deptObj.grace_period_minutes = gracePeriodMinutes;
+
+        return deptObj;
+      });
+
+      // Log the final array for debugging
+      console.log(`Created departmentsArray with ${result.length} departments`);
+      if (result.length > 0) {
+        console.log('First few departments:', result.slice(0, 3).map(d => ({ id: d.id, name: d.name, name_type: typeof d.name })));
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error creating departments array:', error);
+      return []; // Return empty array on error
+    }
+  })() : [];
+
+  // NO SORTING AT ALL - COMPLETELY REMOVED
+  // Just ensure all departments have valid string names
+  if (Array.isArray(departmentsArray)) {
+    for (let i = 0; i < departmentsArray.length; i++) {
+      if (departmentsArray[i]) {
+        // Force name to be a string
+        departmentsArray[i].name = String(departmentsArray[i].name || departmentsArray[i].id || 'Unknown Department');
+      }
+    }
+
+    // Move 'unassigned' to the end if it exists
+    const unassignedIndex = departmentsArray.findIndex(dept => dept && dept.id === 'unassigned');
+    if (unassignedIndex !== -1 && unassignedIndex < departmentsArray.length - 1) {
+      const unassigned = departmentsArray.splice(unassignedIndex, 1)[0];
+      departmentsArray.push(unassigned);
+    }
+  }
+
+  // Log departments array for debugging
+  if (isClient && departmentsArray.length > 0) {
+    console.log('Departments array created successfully with', departmentsArray.length, 'departments');
+  }
 
   // Function to manually refresh data
   const handleManualRefresh = async () => {
@@ -667,6 +794,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Employee</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Department</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                      <th className="px-4 py-2 text-left font-medium text-muted-foreground">Adherence</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Active Time</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Break Time</th>
                       <th className="px-4 py-2 text-left font-medium text-muted-foreground">Last Activity</th>
@@ -675,9 +803,80 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                   </thead>
                   <tbody>
                     {(isRealTimeEnabled ? employeeStatusesState : employeeStatuses).map((employee) => {
-                      const departmentName = employee.department_id === 'unassigned'
-                        ? 'Unassigned'
-                        : (isRealTimeEnabled ? departmentMapState[employee.department_id] : departmentMap[employee.department_id]) || 'Unknown';
+                      // Find the department in our already-processed departmentsArray
+                      // This ensures we're using the same sanitized department data everywhere
+                      let departmentInfo = {
+                        name: 'Unknown',
+                        shift_start_time: null,
+                        shift_end_time: null,
+                        grace_period_minutes: 30
+                      };
+
+                      try {
+                        // Get department ID with fallback
+                        const deptId = employee.department_id || 'unassigned';
+
+                        // First try to find the department in our departmentsArray
+                        // This is the most reliable source since we've already sanitized it
+                        const foundDept = departmentsArray.find(dept => dept.id === deptId);
+
+                        if (foundDept) {
+                          // Use the department from our array
+                          departmentInfo = {
+                            name: foundDept.name,
+                            shift_start_time: foundDept.shift_start_time,
+                            shift_end_time: foundDept.shift_end_time,
+                            grace_period_minutes: foundDept.grace_period_minutes
+                          };
+                        } else {
+                          // Fallback: Special case for unassigned
+                          if (deptId === 'unassigned') {
+                            departmentInfo.name = 'Unassigned';
+                          } else {
+                            // Fallback: Try to get from the department map
+                            const deptMap = isRealTimeEnabled ? departmentMapState : departmentMap;
+
+                            if (deptMap && typeof deptMap === 'object') {
+                              const deptInfo = deptMap[deptId];
+
+                              if (deptInfo) {
+                                if (typeof deptInfo === 'string') {
+                                  // If it's a string, use it as the name
+                                  departmentInfo.name = String(deptInfo);
+                                } else if (typeof deptInfo === 'object' && deptInfo !== null) {
+                                  // If it's an object, extract properties safely
+                                  if ('name' in deptInfo && deptInfo.name != null) {
+                                    departmentInfo.name = String(deptInfo.name);
+                                  }
+
+                                  if ('shift_start_time' in deptInfo) {
+                                    departmentInfo.shift_start_time = deptInfo.shift_start_time;
+                                  }
+
+                                  if ('shift_end_time' in deptInfo) {
+                                    departmentInfo.shift_end_time = deptInfo.shift_end_time;
+                                  }
+
+                                  if ('grace_period_minutes' in deptInfo &&
+                                      typeof deptInfo.grace_period_minutes === 'number') {
+                                    departmentInfo.grace_period_minutes = deptInfo.grace_period_minutes;
+                                  }
+                                }
+                              } else {
+                                // If no department info found, use the ID as the name
+                                departmentInfo.name = `Department ${deptId}`;
+                              }
+                            }
+                          }
+                        }
+                      } catch (error) {
+                        console.error(`Error getting department info for employee ${employee.id}:`, error);
+                        // Keep default values set above
+                      }
+
+                      // Always ensure name is a string
+                      const departmentName = String(departmentInfo.name || 'Unknown');
+                      const shiftStartTime = departmentInfo.shift_start_time;
 
                       return (
                         <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
@@ -692,14 +891,24 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                                employee.status === 'on_break' ? 'On Break' : 'Inactive'}
                             </Badge>
                           </td>
+                          <td className="px-4 py-3">
+                            {employee.adherence ? (
+                              <AdherenceBadge
+                                status={employee.adherence}
+                                shiftStartTime={shiftStartTime}
+                              />
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Not set</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
-                              {formatSeconds(employee.totalActiveTime)}
+                              {formatSeconds(employee.totalActiveTime || 0)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
                             <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
-                              {formatSeconds(employee.totalBreakTime)}
+                              {formatSeconds(employee.totalBreakTime || 0)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-muted-foreground">
@@ -716,6 +925,14 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                                 currentStatus={employee.status}
                                 onStatusChanged={refreshDashboardData}
                               />
+                              {employee.adherence === 'late' && employee.eligible_for_absent && (
+                                <AbsentMarkingButton
+                                  userId={employee.id}
+                                  employeeName={employee.name}
+                                  date={format(today, 'yyyy-MM-dd')}
+                                  onSuccess={refreshDashboardData}
+                                />
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -723,7 +940,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                     })}
                     {(isRealTimeEnabled ? employeeStatusesState : employeeStatuses).length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                        <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                           No employees found. Please add employees to see their status here.
                         </td>
                       </tr>
@@ -784,6 +1001,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                       <tr className="bg-muted/50">
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">Employee</th>
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                        <th className="px-4 py-2 text-left font-medium text-muted-foreground">Adherence</th>
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">Active Time</th>
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">Break Time</th>
                         <th className="px-4 py-2 text-left font-medium text-muted-foreground">Last Activity</th>
@@ -791,49 +1009,85 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                       </tr>
                     </thead>
                     <tbody>
-                      {dept.employees.map((employee) => (
-                        <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
-                          <td className="px-4 py-3 font-medium">{employee.name}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant={
-                              employee.status === 'signed_in' ? 'success' :
-                              employee.status === 'on_break' ? 'warning' : 'outline'
-                            }>
-                              {employee.status === 'signed_in' ? 'Active' :
-                               employee.status === 'on_break' ? 'On Break' : 'Inactive'}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
-                              {formatSeconds(employee.totalActiveTime)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
-                              {formatSeconds(employee.totalBreakTime)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            {employee.lastActivity} {employee.lastActivityTime ? `at ${employee.lastActivityTime}` : ''}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center space-x-2">
-                              <Link href={`/admin/reports?employeeId=${employee.id}`}>
-                                <Button variant="ghost" size="sm">View History</Button>
-                              </Link>
-                              <ChangeStatusDropdown
-                                employeeId={employee.id}
-                                employeeName={employee.name}
-                                currentStatus={employee.status}
-                                onStatusChanged={refreshDashboardData}
-                              />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {dept.employees.map((employee) => {
+                        // Use the department info directly from the dept object
+                        // Since we've already sanitized it in the departmentsArray creation
+                        let departmentInfo = dept;
+
+                        // Ensure we have all required properties with fallbacks
+                        if (!departmentInfo.shift_start_time) departmentInfo.shift_start_time = null;
+                        if (!departmentInfo.shift_end_time) departmentInfo.shift_end_time = null;
+                        if (!departmentInfo.grace_period_minutes) departmentInfo.grace_period_minutes = 30;
+
+                        // Always ensure name is a string
+                        if (typeof departmentInfo.name !== 'string') {
+                          departmentInfo.name = String(departmentInfo.name || `Department ${dept.id}`);
+                        }
+
+                        const shiftStartTime = departmentInfo.shift_start_time;
+
+                        return (
+                          <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
+                            <td className="px-4 py-3 font-medium">{employee.name}</td>
+                            <td className="px-4 py-3">
+                              <Badge variant={
+                                employee.status === 'signed_in' ? 'success' :
+                                employee.status === 'on_break' ? 'warning' : 'outline'
+                              }>
+                                {employee.status === 'signed_in' ? 'Active' :
+                                 employee.status === 'on_break' ? 'On Break' : 'Inactive'}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3">
+                              {employee.adherence ? (
+                                <AdherenceBadge
+                                  status={employee.adherence}
+                                  shiftStartTime={shiftStartTime}
+                                />
+                              ) : (
+                                <span className="text-muted-foreground text-sm">Not set</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
+                                {formatSeconds(employee.totalActiveTime || 0)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              <span className={employee.totalBreakTime > 0 ? "text-amber-600 font-medium" : ""}>
+                                {formatSeconds(employee.totalBreakTime || 0)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {employee.lastActivity} {employee.lastActivityTime ? `at ${employee.lastActivityTime}` : ''}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center space-x-2">
+                                <Link href={`/admin/reports?employeeId=${employee.id}`}>
+                                  <Button variant="ghost" size="sm">View History</Button>
+                                </Link>
+                                <ChangeStatusDropdown
+                                  employeeId={employee.id}
+                                  employeeName={employee.name}
+                                  currentStatus={employee.status}
+                                  onStatusChanged={refreshDashboardData}
+                                />
+                                {employee.adherence === 'late' && employee.eligible_for_absent && (
+                                  <AbsentMarkingButton
+                                    userId={employee.id}
+                                    employeeName={employee.name}
+                                    date={format(today, 'yyyy-MM-dd')}
+                                    onSuccess={refreshDashboardData}
+                                  />
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {dept.employees.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                          <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                             No employees found in this department.
                           </td>
                         </tr>
@@ -892,9 +1146,36 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                       // Find employee name
                       const employee = (isRealTimeEnabled ? allEmployeesState : allEmployees).find(emp => emp && emp.id === log.user_id);
                       const employeeName = employee && employee.full_name ? employee.full_name : 'Unknown Employee';
-                      const departmentName = employee && employee.department_id
-                        ? (isRealTimeEnabled ? departmentMapState[employee.department_id] : departmentMap[employee.department_id]) || 'Unknown'
-                        : 'Unassigned';
+                      // Get department info with proper type checking
+                      let departmentName = 'Unknown';
+
+                      try {
+                        if (employee && employee.department_id) {
+                          const deptId = employee.department_id;
+                          const deptInfo = isRealTimeEnabled ? departmentMapState[deptId] : departmentMap[deptId];
+
+                          if (deptInfo) {
+                            // Handle string department names
+                            if (typeof deptInfo === 'string') {
+                              departmentName = deptInfo;
+                            }
+                            // Handle object department info
+                            else if (typeof deptInfo === 'object' && deptInfo !== null) {
+                              // Extract name with validation
+                              if ('name' in deptInfo && typeof deptInfo.name === 'string') {
+                                departmentName = deptInfo.name;
+                              } else {
+                                departmentName = `Department ${deptId}`;
+                              }
+                            }
+                          }
+                        } else {
+                          departmentName = 'Unassigned';
+                        }
+                      } catch (error) {
+                        console.error('Error getting department name:', error);
+                        departmentName = 'Unknown';
+                      }
 
                       // Format event type
                       let eventType = '';

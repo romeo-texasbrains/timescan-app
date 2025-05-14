@@ -25,12 +25,26 @@ type ActionResult = {
 const DepartmentSchema = z.object({
   name: z.string().min(1, { message: "Department name is required." }),
   description: z.string().optional(),
+  shift_start_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, {
+    message: "Shift start time must be in HH:MM or HH:MM:SS format."
+  }),
+  shift_end_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, {
+    message: "Shift end time must be in HH:MM or HH:MM:SS format."
+  }),
+  grace_period_minutes: z.coerce.number().int().min(0).max(60).default(30),
 });
 
 const UpdateDepartmentSchema = z.object({
   id: z.string().uuid({ message: "Invalid department ID." }),
   name: z.string().min(1, { message: "Department name is required." }),
   description: z.string().optional(),
+  shift_start_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, {
+    message: "Shift start time must be in HH:MM or HH:MM:SS format."
+  }),
+  shift_end_time: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, {
+    message: "Shift end time must be in HH:MM or HH:MM:SS format."
+  }),
+  grace_period_minutes: z.coerce.number().int().min(0).max(60).default(30),
 });
 
 export async function addEmployee(formData: unknown): Promise<ActionResult> {
@@ -236,8 +250,18 @@ export async function createDepartment(formData: FormData) {
   // Parse and validate form data
   const name = formData.get('name') as string;
   const description = formData.get('description') as string;
+  const shift_start_time = formData.get('shift_start_time') as string;
+  const shift_end_time = formData.get('shift_end_time') as string;
+  const grace_period_minutes = formData.get('grace_period_minutes') as string;
 
-  const validatedFields = DepartmentSchema.safeParse({ name, description });
+  const validatedFields = DepartmentSchema.safeParse({
+    name,
+    description,
+    shift_start_time,
+    shift_end_time,
+    grace_period_minutes: parseInt(grace_period_minutes)
+  });
+
   if (!validatedFields.success) {
     // In a real app, you'd want to return these errors to the form
     console.error("Validation error:", validatedFields.error.errors);
@@ -250,6 +274,9 @@ export async function createDepartment(formData: FormData) {
     .insert({
       name,
       description: description || null,
+      shift_start_time,
+      shift_end_time,
+      grace_period_minutes: parseInt(grace_period_minutes),
     });
 
   if (error) {
@@ -285,8 +312,19 @@ export async function updateDepartment(formData: FormData) {
   const id = formData.get('id') as string;
   const name = formData.get('name') as string;
   const description = formData.get('description') as string;
+  const shift_start_time = formData.get('shift_start_time') as string;
+  const shift_end_time = formData.get('shift_end_time') as string;
+  const grace_period_minutes = formData.get('grace_period_minutes') as string;
 
-  const validatedFields = UpdateDepartmentSchema.safeParse({ id, name, description });
+  const validatedFields = UpdateDepartmentSchema.safeParse({
+    id,
+    name,
+    description,
+    shift_start_time,
+    shift_end_time,
+    grace_period_minutes: parseInt(grace_period_minutes)
+  });
+
   if (!validatedFields.success) {
     console.error("Validation error:", validatedFields.error.errors);
     redirect(`/admin/departments/${id}?error=Invalid form data`);
@@ -298,6 +336,9 @@ export async function updateDepartment(formData: FormData) {
     .update({
       name,
       description: description || null,
+      shift_start_time,
+      shift_end_time,
+      grace_period_minutes: parseInt(grace_period_minutes),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id);

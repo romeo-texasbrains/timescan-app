@@ -110,6 +110,9 @@ export type Database = {
           description: string | null
           created_at: string
           updated_at: string
+          shift_start_time: string | null
+          shift_end_time: string | null
+          grace_period_minutes: number | null
         }
         Insert: {
           id?: string
@@ -117,6 +120,9 @@ export type Database = {
           description?: string | null
           created_at?: string
           updated_at?: string
+          shift_start_time?: string | null
+          shift_end_time?: string | null
+          grace_period_minutes?: number | null
         }
         Update: {
           id?: string
@@ -124,6 +130,9 @@ export type Database = {
           description?: string | null
           created_at?: string
           updated_at?: string
+          shift_start_time?: string | null
+          shift_end_time?: string | null
+          grace_period_minutes?: number | null
         }
         Relationships: []
       }
@@ -181,6 +190,51 @@ export type Database = {
           }
         ]
       }
+      attendance_adherence: {
+        Row: {
+          id: string
+          user_id: string
+          date: string
+          status: Database["public"]["Enums"]["adherence_status"]
+          marked_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          date: string
+          status: Database["public"]["Enums"]["adherence_status"]
+          marked_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          date?: string
+          status?: Database["public"]["Enums"]["adherence_status"]
+          marked_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_adherence_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_adherence_marked_by_fkey"
+            columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -191,6 +245,7 @@ export type Database = {
     Enums: {
       attendance_event_type: "signin" | "signout" | "break_start" | "break_end"
       user_role: "employee" | "manager" | "admin"
+      adherence_status: "early" | "on_time" | "late" | "absent"
     }
     CompositeTypes: {
       [_ in never]: never

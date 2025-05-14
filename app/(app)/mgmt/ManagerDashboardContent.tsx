@@ -16,6 +16,8 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import ChangeStatusDropdown from '@/components/ChangeStatusDropdown';
 import { determineUserStatus, getLastActivity, getStatusLabel, eventTypeToStatus } from '@/lib/utils/statusDetermination';
+import AdherenceBadge from '@/components/AdherenceBadge';
+import AbsentMarkingButton from '@/components/AbsentMarkingButton';
 
 // Type for employee status
 type EmployeeStatus = {
@@ -24,8 +26,10 @@ type EmployeeStatus = {
   status: 'signed_in' | 'signed_out' | 'on_break';
   lastActivity: string;
   lastActivityTime: string;
-  totalActiveTime?: number; // Total active time in minutes
-  totalBreakTime?: number; // Total break time in minutes
+  totalActiveTime?: number; // Total active time in seconds
+  totalBreakTime?: number; // Total break time in seconds
+  adherence?: 'early' | 'on_time' | 'late' | 'absent' | null;
+  eligible_for_absent?: boolean;
 };
 
 interface ManagerDashboardContentProps {
@@ -223,15 +227,30 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
           };
         });
 
-        // Sort employee statuses
-        newEmployeeStatuses.sort((a, b) => {
-          // Active employees first
-          if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
-          if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
+        // Sort employee statuses with robust error handling
+        try {
+          newEmployeeStatuses.sort((a, b) => {
+            try {
+              // Active employees first
+              if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
+              if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
 
-          // Then sort by name
-          return a.name.localeCompare(b.name);
-        });
+              // Then sort by name - with defensive programming
+              // Ensure both names are strings
+              const nameA = typeof a.name === 'string' ? a.name : String(a.name || a.id || '');
+              const nameB = typeof b.name === 'string' ? b.name : String(b.name || b.id || '');
+
+              // Use simple string comparison instead of localeCompare
+              return nameA > nameB ? 1 : nameA < nameB ? -1 : 0;
+            } catch (innerError) {
+              console.error('Error comparing employees:', innerError, { a, b });
+              return 0; // Keep original order if comparison fails
+            }
+          });
+        } catch (sortError) {
+          console.error('Error sorting employees:', sortError);
+          // If sorting fails, at least we still have the unsorted array
+        }
 
         // Update state
         setEmployeeStatusesState(newEmployeeStatuses);
@@ -342,11 +361,46 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
             <div className="bg-primary/10 text-primary px-4 py-2 rounded-lg flex items-center">
               <BuildingOfficeIcon className="h-5 w-5 mr-2" />
               <span className="font-medium">
-                Department: {
-                  isRealTimeEnabled
-                    ? departmentMapState[(managerProfileState?.department_id)]
-                    : departmentMap.get(managerProfile.department_id) || 'Unknown'
-                }
+                Department: {(() => {
+                  try {
+                    const deptId = isRealTimeEnabled
+                      ? managerProfileState?.department_id
+                      : managerProfile?.department_id;
+
+                    if (!deptId) return 'Unknown';
+
+                    if (isRealTimeEnabled) {
+                      // Handle real-time state (object)
+                      const deptInfo = departmentMapState[deptId];
+                      if (typeof deptInfo === 'string') {
+                        return deptInfo;
+                      } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                        return String(deptInfo.name);
+                      }
+                    } else {
+                      // Handle initial data (Map)
+                      if (departmentMap instanceof Map) {
+                        const deptName = departmentMap.get(deptId);
+                        if (deptName) {
+                          return String(deptName);
+                        }
+                      } else if (typeof departmentMap === 'object' && departmentMap !== null) {
+                        // Handle if it's an object instead of a Map
+                        const deptInfo = departmentMap[deptId];
+                        if (typeof deptInfo === 'string') {
+                          return deptInfo;
+                        } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                          return String(deptInfo.name);
+                        }
+                      }
+                    }
+
+                    return 'Unknown';
+                  } catch (error) {
+                    console.error('Error getting department name for banner:', error);
+                    return 'Unknown';
+                  }
+                })()}
               </span>
             </div>
           </div>
@@ -403,9 +457,48 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
               <CardTitle>My Team</CardTitle>
               <CardDescription>
                 {(isRealTimeEnabled ? managerProfileState : managerProfile)?.department_id
-                  ? `${isRealTimeEnabled
-                      ? departmentMapState[(managerProfileState?.department_id)]
-                      : departmentMap.get(managerProfile.department_id) || 'Your'} Department`
+                  ? (() => {
+                      try {
+                        const deptId = isRealTimeEnabled
+                          ? managerProfileState?.department_id
+                          : managerProfile?.department_id;
+
+                        if (!deptId) return 'Your Department';
+
+                        let deptName = 'Your';
+
+                        if (isRealTimeEnabled) {
+                          // Handle real-time state (object)
+                          const deptInfo = departmentMapState[deptId];
+                          if (typeof deptInfo === 'string') {
+                            deptName = deptInfo;
+                          } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                            deptName = String(deptInfo.name);
+                          }
+                        } else {
+                          // Handle initial data (Map)
+                          if (departmentMap instanceof Map) {
+                            const name = departmentMap.get(deptId);
+                            if (name) {
+                              deptName = String(name);
+                            }
+                          } else if (typeof departmentMap === 'object' && departmentMap !== null) {
+                            // Handle if it's an object instead of a Map
+                            const deptInfo = departmentMap[deptId];
+                            if (typeof deptInfo === 'string') {
+                              deptName = deptInfo;
+                            } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                              deptName = String(deptInfo.name);
+                            }
+                          }
+                        }
+
+                        return `${deptName} Department`;
+                      } catch (error) {
+                        console.error('Error getting department name for card description:', error);
+                        return 'Your Department';
+                      }
+                    })()
                   : 'All Employees'}
               </CardDescription>
             </div>
@@ -459,6 +552,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Team Member</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Department</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-4 py-2 text-left font-medium text-muted-foreground">Adherence</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Active Time</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Break Time</th>
                   <th className="px-4 py-2 text-left font-medium text-muted-foreground">Last Activity</th>
@@ -471,11 +565,54 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                   // Find the employee in the original data to get department
                   const employeeData = (isRealTimeEnabled ? employeesInDepartmentState : employeesInDepartment)
                     .find(emp => emp && emp.id === employee.id);
-                  const departmentName = employeeData && employeeData.department_id
-                    ? (isRealTimeEnabled
-                        ? departmentMapState[employeeData.department_id]
-                        : departmentMap.get(employeeData.department_id)) || 'Unknown'
-                    : 'None';
+                  // Get department info with proper type checking
+                  let departmentName = 'Unknown';
+                  let shiftStartTime = null;
+
+                  try {
+                    if (employeeData && employeeData.department_id) {
+                      const deptId = employeeData.department_id;
+
+                      if (isRealTimeEnabled) {
+                        // Handle real-time state (object)
+                        const deptInfo = departmentMapState[deptId];
+                        if (typeof deptInfo === 'string') {
+                          departmentName = deptInfo;
+                        } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                          departmentName = String(deptInfo.name);
+                          if ('shift_start_time' in deptInfo) {
+                            shiftStartTime = deptInfo.shift_start_time;
+                          }
+                        }
+                      } else {
+                        // Handle initial data (Map)
+                        if (departmentMap instanceof Map) {
+                          const deptName = departmentMap.get(deptId);
+                          if (deptName) {
+                            departmentName = String(deptName);
+                          }
+                        } else if (typeof departmentMap === 'object' && departmentMap !== null) {
+                          // Handle if it's an object instead of a Map
+                          const deptInfo = departmentMap[deptId];
+                          if (typeof deptInfo === 'string') {
+                            departmentName = deptInfo;
+                          } else if (typeof deptInfo === 'object' && deptInfo !== null && 'name' in deptInfo) {
+                            departmentName = String(deptInfo.name);
+                            if ('shift_start_time' in deptInfo) {
+                              shiftStartTime = deptInfo.shift_start_time;
+                            }
+                          }
+                        }
+                      }
+                    } else {
+                      departmentName = 'None';
+                    }
+                  } catch (error) {
+                    console.error('Error getting department info:', error);
+                    departmentName = 'Unknown';
+                  }
+
+                  // shiftStartTime is already set in the code above
 
                   return (
                     <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
@@ -513,6 +650,16 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                            employee.status === 'on_break' ? 'On Break' : 'Inactive'}
                         </Badge>
                       </td>
+                      <td className="px-4 py-3">
+                        {employee.adherence ? (
+                          <AdherenceBadge
+                            status={employee.adherence}
+                            shiftStartTime={shiftStartTime}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-sm">Not set</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         <span className={employee.totalActiveTime > 0 ? "text-green-600 font-medium" : ""}>
                           {formatSeconds(employee.totalActiveTime)}
@@ -536,6 +683,14 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                             currentStatus={employee.status}
                             onStatusChanged={refreshDashboardData}
                           />
+                          {employee.adherence === 'late' && employee.eligible_for_absent && (
+                            <AbsentMarkingButton
+                              userId={employee.id}
+                              employeeName={employee.name}
+                              date={format(today, 'yyyy-MM-dd')}
+                              onSuccess={refreshDashboardData}
+                            />
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -543,7 +698,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                 })}
                 {(isRealTimeEnabled ? employeeStatusesState : employeeStatuses).length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                       No team members found in your department. Please contact an administrator to add team members.
                     </td>
                   </tr>

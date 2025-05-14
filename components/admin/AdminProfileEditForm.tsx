@@ -20,8 +20,10 @@ import {
   ClockIcon,
   PencilIcon,
   CheckIcon,
-  XMarkIcon
+  XMarkIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
+import DeleteUserDialog from '@/components/DeleteUserDialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Department {
@@ -37,6 +39,7 @@ interface AdminProfileEditFormProps {
 export default function AdminProfileEditForm({ profile, departments }: AdminProfileEditFormProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const handleSubmit = async (formData: FormData) => {
     setIsSubmitting(true);
@@ -89,14 +92,24 @@ export default function AdminProfileEditForm({ profile, departments }: AdminProf
         <h1 className="text-2xl font-bold">Employee Profile</h1>
         <div className="flex gap-2">
           {!isEditing ? (
-            <Button
-              onClick={() => setIsEditing(true)}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <PencilIcon className="h-4 w-4" />
-              Edit Profile
-            </Button>
+            <>
+              <Button
+                onClick={() => setIsDeleteDialogOpen(true)}
+                variant="destructive"
+                className="flex items-center gap-2"
+              >
+                <TrashIcon className="h-4 w-4" />
+                Delete User
+              </Button>
+              <Button
+                onClick={() => setIsEditing(true)}
+                variant="outline"
+                className="flex items-center gap-2"
+              >
+                <PencilIcon className="h-4 w-4" />
+                Edit Profile
+              </Button>
+            </>
           ) : (
             <Button
               onClick={() => setIsEditing(false)}
@@ -109,6 +122,13 @@ export default function AdminProfileEditForm({ profile, departments }: AdminProf
           )}
         </div>
       </div>
+
+      <DeleteUserDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        userId={profile.id}
+        userName={profile.full_name || 'Unnamed Employee'}
+      />
 
       {isEditing ? (
         <form action={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-6">

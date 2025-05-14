@@ -4,7 +4,7 @@ const withPWA = require('next-pwa')({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === 'development',
-  sw: 'service-worker.js', // Changed to match the service worker filename
+  sw: 'sw.js', // Use the existing sw.js file
 });
 
 const config = {

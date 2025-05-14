@@ -292,12 +292,27 @@ function aggregateLogs(logs: FetchedLog[], timezone: string): ReportRow[] {
   });
 
   // Convert map values to array and sort by date descending, then name
+  // Using try-catch for robust error handling
   const sortedData = Array.from(reportMap.values()).sort((a, b) => {
-    if (a.date > b.date) return -1;
-    if (a.date < b.date) return 1;
-    if (a.employeeName < b.employeeName) return -1;
-    if (a.employeeName > b.employeeName) return 1;
-    return 0;
+    try {
+      // Ensure dates are strings before comparison
+      const dateA = typeof a.date === 'string' ? a.date : String(a.date || '');
+      const dateB = typeof b.date === 'string' ? b.date : String(b.date || '');
+
+      if (dateA > dateB) return -1;
+      if (dateA < dateB) return 1;
+
+      // Ensure employee names are strings before comparison
+      const nameA = typeof a.employeeName === 'string' ? a.employeeName : String(a.employeeName || a.employeeId || '');
+      const nameB = typeof b.employeeName === 'string' ? b.employeeName : String(b.employeeName || b.employeeId || '');
+
+      if (nameA < nameB) return -1;
+      if (nameA > nameB) return 1;
+      return 0;
+    } catch (error) {
+      console.error('Error sorting report data:', error);
+      return 0; // Keep original order if comparison fails
+    }
   });
 
   return sortedData;
@@ -515,8 +530,16 @@ export default async function AdminReportsPage({ searchParams }: AdminReportsPag
                 return acc;
               }, {} as Record<string, ReportRow[]>);
 
-              // Get sorted dates (already sorted in aggregateLogs)
-              const sortedDates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a));
+              // Get sorted dates - with defensive programming
+              const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
+                try {
+                  // Use simple string comparison instead of localeCompare
+                  return b > a ? 1 : b < a ? -1 : 0;
+                } catch (error) {
+                  console.error('Error sorting dates:', error);
+                  return 0; // Keep original order if comparison fails
+                }
+              });
 
               // Render grouped data
               return sortedDates.map((date, dateIndex) => {

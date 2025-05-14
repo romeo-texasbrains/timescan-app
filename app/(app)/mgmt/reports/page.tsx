@@ -343,12 +343,22 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
   const reportRows = Object.values(reportData)
     .flatMap(dateGroup => Object.values(dateGroup))
     .sort((a, b) => {
-      // Sort by date (descending)
-      const dateComparison = new Date(b.date).getTime() - new Date(a.date).getTime();
-      if (dateComparison !== 0) return dateComparison;
+      try {
+        // Sort by date (descending)
+        const dateComparison = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (dateComparison !== 0) return dateComparison;
 
-      // Then by employee name (ascending)
-      return a.employeeName.localeCompare(b.employeeName);
+        // Then by employee name (ascending) - with defensive programming
+        // Ensure both names are strings
+        const nameA = typeof a.employeeName === 'string' ? a.employeeName : String(a.employeeName || a.employeeId || '');
+        const nameB = typeof b.employeeName === 'string' ? b.employeeName : String(b.employeeName || b.employeeId || '');
+
+        // Use simple string comparison instead of localeCompare
+        return nameA > nameB ? 1 : nameA < nameB ? -1 : 0;
+      } catch (error) {
+        console.error('Error sorting report rows:', error);
+        return 0; // Keep original order if comparison fails
+      }
     });
 
   // Group report rows by date
@@ -360,8 +370,16 @@ export default async function ManagerReportsPage({ searchParams }: ManagerReport
     return acc;
   }, {} as Record<string, ReportRow[]>);
 
-  // Get sorted dates (newest first)
-  const sortedDates = Object.keys(groupedByDate).sort((a, b) => b.localeCompare(a));
+  // Get sorted dates (newest first) - with defensive programming
+  const sortedDates = Object.keys(groupedByDate).sort((a, b) => {
+    try {
+      // Use simple string comparison instead of localeCompare
+      return b > a ? 1 : b < a ? -1 : 0;
+    } catch (error) {
+      console.error('Error sorting dates:', error);
+      return 0; // Keep original order if comparison fails
+    }
+  });
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-8 text-foreground">
