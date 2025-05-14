@@ -325,8 +325,28 @@ export default function DashboardClient({
 
   // Reset real-time counters when metrics change
   useEffect(() => {
-    setRealTimeWorkSecs(metrics.workTime);
-    setRealTimeBreakSecs(metrics.breakTime);
+    // Validate metrics before setting real-time counters
+    const MAX_REASONABLE_HOURS = 24;
+    const MAX_REASONABLE_SECONDS = MAX_REASONABLE_HOURS * 3600;
+
+    // Check if work time is unreasonably high
+    if (metrics.workTime > MAX_REASONABLE_SECONDS) {
+      console.error(`Unreasonable metrics work time detected: ${Math.floor(metrics.workTime/3600)}h. Capping to ${MAX_REASONABLE_HOURS}h.`);
+      // Cap to reasonable maximum
+      setRealTimeWorkSecs(MAX_REASONABLE_SECONDS);
+    } else {
+      setRealTimeWorkSecs(metrics.workTime);
+    }
+
+    // Check if break time is unreasonably high
+    if (metrics.breakTime > MAX_REASONABLE_SECONDS) {
+      console.error(`Unreasonable metrics break time detected: ${Math.floor(metrics.breakTime/3600)}h. Capping to ${MAX_REASONABLE_HOURS}h.`);
+      // Cap to reasonable maximum
+      setRealTimeBreakSecs(MAX_REASONABLE_SECONDS);
+    } else {
+      setRealTimeBreakSecs(metrics.breakTime);
+    }
+
     console.log('Metrics changed, resetting real-time counters to:', {
       workTime: `${Math.floor(metrics.workTime/3600)}h ${Math.floor((metrics.workTime%3600)/60)}m ${metrics.workTime % 60}s`,
       breakTime: `${Math.floor(metrics.breakTime/3600)}h ${Math.floor((metrics.breakTime%3600)/60)}m ${metrics.breakTime % 60}s`
@@ -654,7 +674,31 @@ export default function DashboardClient({
   // Just ensure our values are capped appropriately
   console.log('Using metrics from context - workTime:', metrics.workTime, 'breakTime:', metrics.breakTime);
 
-  // Cap all durations to reasonable maximums
+  // Define reasonable maximums for daily, weekly, and monthly hours
+  const MAX_REASONABLE_DAILY_HOURS = 24;
+  const MAX_REASONABLE_DAILY_SECONDS = MAX_REASONABLE_DAILY_HOURS * 3600;
+  const MAX_REASONABLE_WEEKLY_HOURS = 168; // 24 * 7
+  const MAX_REASONABLE_WEEKLY_SECONDS = MAX_REASONABLE_WEEKLY_HOURS * 3600;
+  const MAX_REASONABLE_MONTHLY_HOURS = 744; // 24 * 31
+  const MAX_REASONABLE_MONTHLY_SECONDS = MAX_REASONABLE_MONTHLY_HOURS * 3600;
+
+  // Check for unreasonable values and cap them
+  if (todaySecs > MAX_REASONABLE_DAILY_SECONDS) {
+    console.error(`Unreasonable work time detected: ${Math.floor(todaySecs/3600)}h. Capping to ${MAX_REASONABLE_DAILY_HOURS}h.`);
+    todaySecs = MAX_REASONABLE_DAILY_SECONDS;
+  }
+
+  if (weekSecs > MAX_REASONABLE_WEEKLY_SECONDS) {
+    console.error(`Unreasonable week time detected: ${Math.floor(weekSecs/3600)}h. Capping to ${MAX_REASONABLE_WEEKLY_HOURS}h.`);
+    weekSecs = MAX_REASONABLE_WEEKLY_SECONDS;
+  }
+
+  if (monthSecs > MAX_REASONABLE_MONTHLY_SECONDS) {
+    console.error(`Unreasonable month time detected: ${Math.floor(monthSecs/3600)}h. Capping to ${MAX_REASONABLE_MONTHLY_HOURS}h.`);
+    monthSecs = MAX_REASONABLE_MONTHLY_SECONDS;
+  }
+
+  // Also cap to the shift duration maximums from the shift-utils
   if (todaySecs > MAX_SHIFT_DURATION_SECONDS) todaySecs = MAX_SHIFT_DURATION_SECONDS;
   if (weekSecs > (MAX_SHIFT_DURATION_SECONDS * 7)) weekSecs = MAX_SHIFT_DURATION_SECONDS * 7;
   if (monthSecs > (MAX_SHIFT_DURATION_SECONDS * 31)) monthSecs = MAX_SHIFT_DURATION_SECONDS * 31;
@@ -703,6 +747,21 @@ export default function DashboardClient({
 
   // Use real-time counters for active display, but keep metrics for consistency with manager dashboard
   // This ensures the timer updates in real-time while still being consistent with the server
+
+  // Validate real-time counters before using them
+  if (realTimeWorkSecs > MAX_REASONABLE_DAILY_SECONDS) {
+    console.error(`Unreasonable real-time work counter detected: ${Math.floor(realTimeWorkSecs/3600)}h. Using metrics value instead.`);
+    // Use the metrics value instead of the real-time counter
+    setRealTimeWorkSecs(metrics.workTime);
+  }
+
+  if (realTimeBreakSecs > MAX_REASONABLE_DAILY_SECONDS) {
+    console.error(`Unreasonable real-time break counter detected: ${Math.floor(realTimeBreakSecs/3600)}h. Using metrics value instead.`);
+    // Use the metrics value instead of the real-time counter
+    setRealTimeBreakSecs(metrics.breakTime);
+  }
+
+  // Use validated counters
   const finalTodaySecs = isRealTimeEnabled ? realTimeWorkSecs : metrics.workTime;
   const finalWeekSecs = metrics.weekTime; // Use context weekTime
   const finalMonthSecs = metrics.monthTime; // Use context monthTime

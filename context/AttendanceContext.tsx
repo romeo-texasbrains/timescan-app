@@ -191,7 +191,28 @@ export const AttendanceProvider: React.FC<AttendanceProviderProps> = ({
 
       // Calculate metrics directly instead of using the API
       const metricsData = calculateUserAttendanceMetrics(newLogs || [], timezone, userId);
-      console.log('Calculated metrics:', metricsData);
+
+      // Log detailed metrics information for debugging
+      console.log('Calculated metrics:', {
+        workTime: `${Math.floor(metricsData.workTime/3600)}h ${Math.floor((metricsData.workTime%3600)/60)}m`,
+        breakTime: `${Math.floor(metricsData.breakTime/3600)}h ${Math.floor((metricsData.breakTime%3600)/60)}m`,
+        overtimeSeconds: `${Math.floor(metricsData.overtimeSeconds/3600)}h ${Math.floor((metricsData.overtimeSeconds%3600)/60)}m`,
+        weekTime: `${Math.floor(metricsData.weekTime/3600)}h ${Math.floor((metricsData.weekTime%3600)/60)}m`,
+        monthTime: `${Math.floor(metricsData.monthTime/3600)}h ${Math.floor((metricsData.monthTime%3600)/60)}m`,
+        isActive: metricsData.isActive,
+        isOnBreak: metricsData.isOnBreak
+      });
+
+      // Validate metrics before setting them
+      const MAX_REASONABLE_HOURS = 24; // Maximum reasonable hours for a day
+      const MAX_REASONABLE_SECONDS = MAX_REASONABLE_HOURS * 3600;
+
+      // Check if work time is unreasonably high
+      if (metricsData.workTime > MAX_REASONABLE_SECONDS) {
+        console.error(`Unreasonable work time detected: ${Math.floor(metricsData.workTime/3600)}h. Capping to ${MAX_REASONABLE_HOURS}h.`);
+        metricsData.workTime = MAX_REASONABLE_SECONDS;
+        metricsData.overtimeSeconds = Math.max(0, metricsData.workTime - (8 * 3600));
+      }
 
       setMetrics(metricsData);
       setLastUpdateTime(new Date());
