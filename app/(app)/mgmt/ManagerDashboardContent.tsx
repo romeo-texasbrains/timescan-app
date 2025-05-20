@@ -176,6 +176,20 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
         setTodayLogsCountState(newTodayLogsCount);
       }
 
+      // Fetch the current timezone from settings
+      const { data: settings } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'timezone')
+        .single();
+
+      if (settings?.value) {
+        setTimezoneState(settings.value);
+      }
+
+      // Call the fix_adherence_status function to update adherence statuses
+      await supabase.rpc('fix_adherence_status');
+
       // Get team member IDs
       const teamMemberIds = employeesInDepartmentState.map(emp => emp.id);
 
@@ -191,6 +205,20 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
         if (newRecentLogs) {
           setRecentLogsState(newRecentLogs);
         }
+      }
+
+      // Fetch adherence status for all employees for today
+      const { data: adherenceData } = await supabase
+        .from('attendance_adherence')
+        .select('*')
+        .eq('date', todayStr);
+
+      // Create a map of user IDs to adherence status
+      const userAdherenceMap = new Map();
+      if (adherenceData) {
+        adherenceData.forEach(record => {
+          userAdherenceMap.set(record.user_id, record);
+        });
       }
 
       // Fetch team metrics from the API
@@ -214,6 +242,12 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
           const lastActivityStatus = employee.lastActivity ?
             eventTypeToStatus(employee.lastActivity.type) : 'signed_out';
 
+          // Get adherence status from the map
+          const adherenceRecord = userAdherenceMap.get(employee.userId);
+          const adherenceStatus = adherenceRecord ? adherenceRecord.status : null;
+          const eligibleForAbsent = adherenceRecord && adherenceStatus === 'late' &&
+                                   (new Date().getHours() >= 12); // Eligible after noon
+
           return {
             id: employee.userId,
             name: employee.fullName || 'Unnamed',
@@ -223,7 +257,9 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
             lastActivityTime: employee.lastActivity ?
               formatInTimeZone(parseISO(employee.lastActivity.timestamp), timezoneState, 'h:mm a') : '',
             totalActiveTime: employee.workTime, // Keep as seconds to match client-side
-            totalBreakTime: employee.breakTime  // Keep as seconds to match client-side
+            totalBreakTime: employee.breakTime,  // Keep as seconds to match client-side
+            adherence: adherenceStatus,
+            eligible_for_absent: eligibleForAbsent
           };
         });
 

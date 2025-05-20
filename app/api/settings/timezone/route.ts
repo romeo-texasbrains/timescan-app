@@ -1,37 +1,38 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { SupabaseClient } from '@supabase/supabase-js' // Import type if needed
+import { SupabaseClient } from '@supabase/supabase-js'
 
-// IMPORTANT: Replace this with your actual admin check logic
+// Helper function to check if user is admin
 async function checkIfAdmin(supabase: SupabaseClient): Promise<boolean> {
-  // Example: Check for a specific role or custom claim
-  // const { data: { user } } = await supabase.auth.getUser();
-  // const { data: profile, error } = await supabase.from('profiles').select('is_admin').eq('id', user?.id).single();
-  // return profile?.is_admin ?? false;
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
 
-  // For now, allowing any authenticated user for simplicity. SECURE THIS PROPERLY!
-  const { data: { user } } = await supabase.auth.getUser();
-  return !!user;
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  return profile?.role === 'admin'
 }
 
 export async function GET() {
-  const cookieStore = cookies()
-  const supabase = await createClient() // Await the server client creation
+  const supabase = createClient()
 
   try {
     const { data, error } = await supabase
       .from('app_settings')
       .select('timezone')
-      .eq('id', 1) // Assuming single row for settings
+      .eq('id', 1)
       .single()
 
-    if (error && error.code !== 'PGRST116') { // PGRST116: row not found is ok, we'll use default
+    if (error && error.code !== 'PGRST116') {
       console.error('Error fetching timezone:', error)
       throw new Error('Failed to fetch timezone setting')
     }
 
-    const timezone = data?.timezone ?? 'UTC' // Default to UTC if not set
+    const timezone = data?.timezone ?? 'UTC'
     return NextResponse.json({ timezone })
 
   } catch (error: any) {
@@ -40,8 +41,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const cookieStore = cookies()
-  const supabase = await createClient() // Await the server client creation
+  const supabase = createClient()
 
   // Authentication and Authorization
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -49,8 +49,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
   }
 
-  // Replace with your actual admin check
-  const isAdmin = await checkIfAdmin(supabase); // Pass the awaited client instance
+  // Check if user is admin
+  const isAdmin = await checkIfAdmin(supabase)
   if (!isAdmin) {
      return NextResponse.json({ message: 'Forbidden: Admin access required' }, { status: 403 })
   }
@@ -62,26 +62,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: 'Bad Request: Invalid timezone provided' }, { status: 400 })
     }
 
-    // Optional: Validate if timezone is a valid IANA identifier (can be complex)
-    // try {
-    //   Intl.DateTimeFormat(undefined, { timeZone: timezone });
-    // } catch (e) {
-    //   return NextResponse.json({ message: 'Bad Request: Invalid IANA timezone identifier' }, { status: 400 })
-    // }
-
+    // Update app_settings table
     const { error: updateError } = await supabase
       .from('app_settings')
       .update({ timezone: timezone })
-      .eq('id', 1) // Update the single settings row
+      .eq('id', 1)
 
     if (updateError) {
-      console.error('Error updating timezone:', updateError)
-      throw new Error('Failed to update timezone setting')
+      console.error('Error updating timezone in app_settings:', updateError)
+      throw new Error('Failed to update timezone in app_settings')
     }
 
-    return NextResponse.json({ success: true, message: `Timezone updated to ${timezone}` })
+    // Update settings table (for the SQL functions)
+    const { error: settingsError } = await supabase
+      .rpc('update_timezone_setting', { p_timezone: timezone })
+
+    if (settingsError) {
+      console.error('Error updating timezone in settings table:', settingsError)
+      throw new Error('Failed to update timezone in settings table')
+    }
+
+    // Run the fix function to update existing records
+    const { error: fixError } = await supabase
+      .rpc('fix_adherence_status')
+
+    if (fixError) {
+      console.error('Error fixing adherence status:', fixError)
+      // Continue anyway, as the timezone was updated successfully
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Timezone updated to ${timezone}`
+    })
 
   } catch (error: any) {
     return NextResponse.json({ message: `Error updating timezone: ${error.message}` }, { status: 500 })
   }
-} 
+}

@@ -177,6 +177,26 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
         setRecentLogsState(newRecentLogs);
       }
 
+      // Fetch the current timezone from settings
+      const { data: settings } = await supabase
+        .from('settings')
+        .select('value')
+        .eq('key', 'timezone')
+        .single();
+
+      if (settings?.value) {
+        setTimezoneState(settings.value);
+      }
+
+      // Call the fix_adherence_status function to update adherence statuses
+      await supabase.rpc('fix_adherence_status');
+
+      // Fetch adherence status for all employees for today
+      const { data: adherenceData } = await supabase
+        .from('attendance_adherence')
+        .select('*')
+        .eq('date', todayStr);
+
       // Fetch today's logs for processing employee statuses
       const { data: todayLogs } = await supabase
         .from('attendance_logs')
@@ -184,6 +204,14 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
         .gte('timestamp', `${todayStr}T00:00:00`)
         .lte('timestamp', `${todayStr}T23:59:59`)
         .order('timestamp', { ascending: true });
+
+      // Create a map of user IDs to adherence status
+      const userAdherenceMap = new Map();
+      if (adherenceData) {
+        adherenceData.forEach(record => {
+          userAdherenceMap.set(record.user_id, record);
+        });
+      }
 
       if (todayLogs && allEmployeesState.length > 0) {
         // Process employee statuses (similar to server-side logic)
@@ -334,6 +362,12 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
           // Use our utility function to determine the current status
           const currentStatus = determineUserStatus(employeeLogs);
 
+          // Get adherence status from the map
+          const adherenceRecord = userAdherenceMap.get(employee.id);
+          const adherenceStatus = adherenceRecord ? adherenceRecord.status : null;
+          const eligibleForAbsent = adherenceRecord && adherenceStatus === 'late' &&
+                                   (new Date().getHours() >= 12); // Eligible after noon
+
           if (latestStatus) {
             newEmployeeStatuses.push({
               id: employee.id,
@@ -343,7 +377,9 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
               lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezoneState, 'h:mm a'),
               department_id: employee.department_id || 'unassigned',
               totalActiveTime: totalActiveSeconds,
-              totalBreakTime: totalBreakSeconds
+              totalBreakTime: totalBreakSeconds,
+              adherence: adherenceStatus,
+              eligible_for_absent: eligibleForAbsent
             });
           } else {
             newEmployeeStatuses.push({
@@ -354,7 +390,9 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
               lastActivityTime: '',
               department_id: employee.department_id || 'unassigned',
               totalActiveTime: 0,
-              totalBreakTime: 0
+              totalBreakTime: 0,
+              adherence: adherenceStatus,
+              eligible_for_absent: eligibleForAbsent
             });
           }
         });
@@ -700,9 +738,14 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                 Employee attendance status by department
               </CardDescription>
             </div>
-            <Badge variant="outline" className="ml-2">
-              {format(today, 'MMM d, yyyy')}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Link href="/admin/fix-adherence" className="text-xs text-blue-600 hover:underline">
+                Fix Adherence Issues
+              </Link>
+              <Badge variant="outline">
+                {format(today, 'MMM d, yyyy')}
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
