@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { useLoading } from '@/components/LoadingContext';
+import { useLoading } from '@/context/LoadingContext';
 
 interface RecentActivityContentProps {
   initialData: {
@@ -40,7 +40,7 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isClient, setIsClient] = useState<boolean>(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
-  
+
   const { stopLoading } = useLoading();
 
   // Initialize state with initial data
@@ -64,20 +64,20 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
   // Function to fetch recent activity
   const fetchRecentActivity = async () => {
     setIsLoading(true);
-    
+
     try {
       // Build query parameters
       const params = new URLSearchParams();
       params.append('limit', limit.toString());
-      
+
       if (selectedUserId) {
         params.append('userId', selectedUserId);
       }
-      
+
       if (selectedDepartmentId) {
         params.append('departmentId', selectedDepartmentId);
       }
-      
+
       // Fetch data from API
       const response = await fetch(`/api/activity/recent?${params.toString()}`, {
         method: 'GET',
@@ -86,19 +86,19 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
         },
         cache: 'no-store',
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(`API error: ${errorData.error || response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Update state with fetched data
       setLogs(data.logs || []);
       setTimezone(data.timezone);
       setLastUpdateTime(new Date());
-      
+
       toast.success('Recent activity loaded successfully');
     } catch (error) {
       console.error('Error fetching recent activity:', error);
@@ -145,7 +145,7 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
               </SelectContent>
             </Select>
           </div>
-          
+
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">User</label>
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
@@ -164,7 +164,7 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
           </div>
         </>
       )}
-      
+
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium">Limit</label>
         <Select value={limit.toString()} onValueChange={(value) => setLimit(parseInt(value, 10))}>
@@ -179,7 +179,7 @@ export default function RecentActivityContent({ initialData }: RecentActivityCon
           </SelectContent>
         </Select>
       </div>
-      
+
       <div className="flex items-end">
         <Button onClick={handleApplyFilters} disabled={isLoading}>
           {isLoading ? 'Loading...' : 'Apply Filters'}

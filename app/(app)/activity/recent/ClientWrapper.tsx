@@ -1,6 +1,6 @@
 'use client';
 
-import { LoadingProvider } from '@/components/LoadingContext';
+import { LoadingProvider } from '@/context/LoadingContext';
 import RecentActivityContent from './RecentActivityContent';
 
 export default function ClientWrapper({ initialData }: { initialData: any }) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { LoadingProvider } from '@/components/LoadingContext';
+import { LoadingProvider } from '@/context/LoadingContext';
 import EmployeeDashboardContent from './EmployeeDashboardContent';
 
 export default function ClientWrapper({ initialData }: { initialData: any }) {

@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { useLoading } from '@/components/LoadingContext';
+import { useLoading } from '@/context/LoadingContext';
 
 interface EmployeeDashboardContentProps {
   initialData: {

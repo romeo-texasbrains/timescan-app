@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
-import { useLoading } from '@/components/LoadingContext';
+import { useLoading } from '@/context/LoadingContext';
 import { CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -51,7 +51,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
   const [users, setUsers] = useState<any[]>(initialUsers);
   const [userRole, setUserRole] = useState<string>(initialUserRole);
   const [isClient, setIsClient] = useState<boolean>(false);
-  
+
   const { stopLoading } = useLoading();
 
   // Initialize state with initial data
@@ -75,7 +75,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
   // Function to fetch attendance history
   const fetchAttendanceHistory = async () => {
     setIsLoading(true);
-    
+
     try {
       // Build query parameters
       const params = new URLSearchParams();
@@ -83,11 +83,11 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
       params.append('endDate', format(endDate, 'yyyy-MM-dd'));
       params.append('groupByDay', viewType === 'daily' ? 'true' : 'false');
       params.append('includeMetrics', includeMetrics ? 'true' : 'false');
-      
+
       if (selectedUserId) {
         params.append('userId', selectedUserId);
       }
-      
+
       // Fetch data from API
       const response = await fetch(`/api/attendance/history?${params.toString()}`, {
         method: 'GET',
@@ -96,23 +96,23 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
         },
         cache: 'no-store',
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(`API error: ${errorData.error || response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
       // Update state with fetched data
       if (viewType === 'daily') {
         setGroupedByDay(data.groupedByDay || {});
       } else {
         setLogs(data.logs || []);
       }
-      
+
       setTimezone(data.timezone);
-      
+
       toast.success('Attendance history loaded successfully');
     } catch (error) {
       console.error('Error fetching attendance history:', error);
@@ -178,7 +178,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
           </PopoverContent>
         </Popover>
       </div>
-      
+
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium">End Date</label>
         <Popover>
@@ -204,7 +204,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
           </PopoverContent>
         </Popover>
       </div>
-      
+
       {(userRole === 'admin' || userRole === 'manager') && (
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium">User</label>
@@ -223,7 +223,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
           </Select>
         </div>
       )}
-      
+
       <div className="flex flex-col gap-2">
         <label className="text-sm font-medium">View Type</label>
         <Select value={viewType} onValueChange={(value: 'list' | 'daily') => setViewType(value)}>
@@ -236,7 +236,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
           </SelectContent>
         </Select>
       </div>
-      
+
       <div className="flex items-end">
         <Button onClick={handleApplyFilters} disabled={isLoading}>
           {isLoading ? 'Loading...' : 'Apply Filters'}
@@ -311,7 +311,7 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
                     {(userRole === 'admin' || userRole === 'manager') && (
                       <h3 className="text-lg font-semibold mb-2">{userDay.userName}</h3>
                     )}
-                    
+
                     {includeMetrics && (
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                         <div className="bg-muted p-3 rounded-md">
@@ -325,21 +325,21 @@ export default function AttendanceHistoryContent({ initialData }: AttendanceHist
                         <div className="bg-muted p-3 rounded-md">
                           <div className="text-sm text-muted-foreground">Current Status</div>
                           <div className="text-lg font-medium">
-                            {userDay.metrics.isActive ? 'Active' : 
+                            {userDay.metrics.isActive ? 'Active' :
                              userDay.metrics.isOnBreak ? 'On Break' : 'Signed Out'}
                           </div>
                         </div>
                         <div className="bg-muted p-3 rounded-md">
                           <div className="text-sm text-muted-foreground">Last Activity</div>
                           <div className="text-lg font-medium">
-                            {userDay.metrics.lastActivity ? 
-                              `${formatEventType(userDay.metrics.lastActivity.type)} at ${format(parseISO(userDay.metrics.lastActivity.timestamp), 'h:mm a')}` : 
+                            {userDay.metrics.lastActivity ?
+                              `${formatEventType(userDay.metrics.lastActivity.type)} at ${format(parseISO(userDay.metrics.lastActivity.timestamp), 'h:mm a')}` :
                               'None'}
                           </div>
                         </div>
                       </div>
                     )}
-                    
+
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>

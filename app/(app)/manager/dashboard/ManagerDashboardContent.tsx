@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { useLoading } from '@/components/LoadingContext';
+import { useLoading } from '@/context/LoadingContext';
 import AdherenceBadge from '@/components/AdherenceBadge';
 import AbsentMarkingButton from '@/components/AbsentMarkingButton';
 import ChangeStatusDropdown from '@/components/ChangeStatusDropdown';
@@ -113,7 +113,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
 
     // Create a channel for real-time updates
     const channel = supabase.channel('manager-dashboard-changes');
-    
+
     // Subscribe to attendance_logs table changes
     channel.on('postgres_changes', {
       event: '*',
@@ -133,7 +133,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
         toast.error('Failed to update dashboard data');
       }
     });
-    
+
     // Subscribe to attendance_adherence table changes
     channel.on('postgres_changes', {
       event: '*',
@@ -155,7 +155,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
             toast.info(`${employeeName}'s adherence status changed to ${payload.new.status}`);
           }
         }
-        
+
         // Fetch updated data
         await refreshDashboardData();
         setLastUpdateTime(new Date());
@@ -164,7 +164,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
         toast.error('Failed to update dashboard data');
       }
     });
-    
+
     // Subscribe to the channel
     const subscription = channel.subscribe();
 
@@ -244,12 +244,12 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
       throw error;
     }
   };
-  
+
   // Function to refresh recent activity data
   const refreshRecentActivity = async () => {
     try {
       console.log('Fetching recent activity data...');
-      
+
       // Call the recent activity API endpoint
       const response = await fetch('/api/activity/recent?limit=20', {
         method: 'GET',
@@ -258,18 +258,18 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
         },
         cache: 'no-store',
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(`API error: ${errorData.error || response.statusText}`);
       }
-      
+
       const activityData = await response.json();
       console.log('Recent activity data fetched successfully');
-      
+
       // Update recent logs state
       setRecentLogsState(activityData.logs || []);
-      
+
       return activityData;
     } catch (error) {
       console.error('Error refreshing recent activity data:', error);
@@ -294,7 +294,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
     try {
       toast.info('Refreshing dashboard data...');
       console.log('Manual refresh initiated');
-      
+
       // Add a loading state
       const refreshButton = document.querySelector('[data-refresh-button]');
       if (refreshButton) {
@@ -305,7 +305,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
       await refreshDashboardData();
       setLastUpdateTime(new Date());
       toast.success('Dashboard data refreshed successfully');
-      
+
       // Reset the button
       if (refreshButton) {
         refreshButton.removeAttribute('disabled');
@@ -314,7 +314,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
     } catch (error) {
       console.error('Manual refresh error:', error);
       toast.error('Failed to refresh dashboard data. Please try again.');
-      
+
       // Reset the button on error
       const refreshButton = document.querySelector('[data-refresh-button]');
       if (refreshButton) {
@@ -417,7 +417,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
                   // Get department info
                   const deptId = employee.department_id || 'unassigned';
                   const deptInfo = isRealTimeEnabled ? departmentMapState[deptId] : departmentMap[deptId];
-                  
+
                   return (
                     <tr key={employee.id} className="border-t border-border hover:bg-muted/20">
                       <td className="px-4 py-3 font-medium">{employee.name}</td>
@@ -519,7 +519,7 @@ export default function ManagerDashboardContent({ initialData }: ManagerDashboar
                     {recentLogsState.map(log => {
                       // Get employee name from the log
                       const employeeName = log.userName || 'Unknown Employee';
-                      
+
                       // Format event type
                       let eventType = '';
                       let eventVariant: 'success' | 'destructive' | 'warning' | 'outline' = 'outline';

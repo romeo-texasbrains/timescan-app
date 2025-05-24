@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { format, subDays } from 'date-fns';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
+import LoadingSpinner from '@/components/LoadingSpinner';
 import ClientWrapper from './ClientWrapper';
 import { requireAuth } from '@/lib/auth/session';
 import { getUsers } from '@/lib/db/queries';

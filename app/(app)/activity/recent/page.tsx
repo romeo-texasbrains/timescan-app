@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
+import LoadingSpinner from '@/components/LoadingSpinner';
 import ClientWrapper from './ClientWrapper';
 import { requireAuth } from '@/lib/auth/session';
 import { getUsers, getDepartments } from '@/lib/db/queries';
@@ -9,11 +9,11 @@ export default async function RecentActivityPage() {
   try {
     // Require authentication
     const session = await requireAuth();
-    
+
     // Fetch initial data based on user role
     let users: any[] = [];
     let departments: any[] = [];
-    
+
     if (session.role === 'admin') {
       // Admin can see all users and departments
       users = await getUsers({});
@@ -23,19 +23,19 @@ export default async function RecentActivityPage() {
       users = await getUsers({ departmentIds: [session.department_id] });
       departments = await getDepartments({ departmentId: session.department_id });
     }
-    
+
     // Call the recent activity API
     const { GET } = await import('@/app/api/activity/recent/route');
     const response = await GET(
       new Request('http://localhost:3000/api/activity/recent')
     );
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch recent activity: ${response.statusText}`);
     }
-    
+
     const activityData = await response.json();
-    
+
     // Add user role, users, and departments to the data
     const initialData = {
       ...activityData,
@@ -43,7 +43,7 @@ export default async function RecentActivityPage() {
       departments,
       userRole: session.role
     };
-    
+
     // Wrap the content in Suspense to show loading indicator
     return (
       <Suspense fallback={<div className="flex justify-center items-center min-h-screen"><LoadingSpinner size="lg" /></div>}>
@@ -52,7 +52,7 @@ export default async function RecentActivityPage() {
     );
   } catch (error) {
     console.error('Error fetching recent activity:', error);
-    
+
     return (
       <div className="container mx-auto p-6">
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-6">
