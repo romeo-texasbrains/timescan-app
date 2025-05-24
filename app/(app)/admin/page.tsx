@@ -166,6 +166,27 @@ export default async function AdminPage({ searchParams }: { searchParams?: { [ke
           </Card>
         </Link>
 
+        <Link href="/admin/adherence" className="block group">
+          <Card className="bg-card/70 dark:bg-card/70 backdrop-blur-md border border-white/10 rounded-xl shadow-lg p-5 group-hover:shadow-xl group-hover:border-primary/20 transition-all duration-300 h-full hover:scale-[1.02]">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-0">
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="text-xs font-medium px-2 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+                New
+              </div>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <CardTitle className="text-lg font-semibold text-foreground mb-2">Adherence Management</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Manage and recalculate attendance adherence status.
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
         <Link href="/admin/settings" className="block group pointer-events-none">
           <Card className="bg-card/50 dark:bg-card/50 backdrop-blur-sm border border-white/5 rounded-xl shadow-lg p-5 cursor-not-allowed opacity-70 h-full">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-0">

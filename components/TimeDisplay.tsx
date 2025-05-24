@@ -3,125 +3,40 @@
 import { useState, useEffect } from 'react';
 import { formatInTimeZone } from 'date-fns-tz';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useTimezone } from '@/context/TimezoneContext';
+import { isValidTimezone, getTimezoneAbbreviation } from '@/lib/utils/timezone-client';
 
 interface TimeDisplayProps {
-  timezone: string;
+  timezone: string; // This is the prop passed from the parent, but we'll use context instead
 }
 
-export default function TimeDisplay({ timezone }: TimeDisplayProps) {
+export default function TimeDisplay({ timezone: propTimezone }: TimeDisplayProps) {
+  const { timezone: contextTimezone } = useTimezone(); // Get timezone from context
+  const timezone = contextTimezone || propTimezone; // Use context timezone if available, otherwise use prop
+
   const [currentTime, setCurrentTime] = useState('');
   const [currentDate, setCurrentDate] = useState('');
+  const [timezoneAbbr, setTimezoneAbbr] = useState('');
   const isMobile = useMediaQuery('(max-width: 640px)');
-
-  // Function to validate timezone
-  const isValidTimezone = (tz: string): boolean => {
-    try {
-      // Try to create a formatter with the timezone to check if it's valid
-      Intl.DateTimeFormat(undefined, { timeZone: tz });
-      return true;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  // Function to get friendly timezone abbreviation
-  const getTimezoneAbbreviation = (tz: string): string => {
-    // Common timezone abbreviations mapping
-    const timezoneMap: Record<string, string> = {
-      // North America
-      'America/New_York': 'EST/EDT',
-      'America/Chicago': 'CST/CDT',
-      'America/Denver': 'MST/MDT',
-      'America/Los_Angeles': 'PST/PDT',
-      'America/Phoenix': 'MST',
-      'America/Anchorage': 'AKST/AKDT',
-      'America/Adak': 'HST/HDT',
-      'America/Honolulu': 'HST',
-
-      // Europe
-      'Europe/London': 'GMT/BST',
-      'Europe/Paris': 'CET/CEST',
-      'Europe/Berlin': 'CET/CEST',
-      'Europe/Moscow': 'MSK',
-      'Europe/Athens': 'EET/EEST',
-
-      // Asia
-      'Asia/Karachi': 'PKT',
-      'Asia/Kolkata': 'IST',
-      'Asia/Tokyo': 'JST',
-      'Asia/Shanghai': 'CST',
-      'Asia/Dubai': 'GST',
-      'Asia/Singapore': 'SGT',
-      'Asia/Seoul': 'KST',
-
-      // Australia
-      'Australia/Sydney': 'AEST/AEDT',
-      'Australia/Perth': 'AWST',
-      'Australia/Adelaide': 'ACST/ACDT',
-
-      // South America
-      'America/Sao_Paulo': 'BRT/BRST',
-      'America/Argentina/Buenos_Aires': 'ART',
-
-      // Africa
-      'Africa/Cairo': 'EET',
-      'Africa/Johannesburg': 'SAST',
-
-      // Default
-      'UTC': 'UTC',
-      'Etc/UTC': 'UTC',
-      'Etc/GMT': 'GMT'
-    };
-
-    // Try to get the abbreviation from our map
-    if (timezoneMap[tz]) {
-      return timezoneMap[tz];
-    }
-
-    // If not in our map, try to extract from the timezone name
-    const parts = tz.split('/');
-    if (parts.length > 1) {
-      // Try to create an abbreviation from the last part
-      const lastPart = parts[parts.length - 1].replace(/_/g, ' ');
-
-      // Special case for US timezones
-      if (tz.startsWith('America/') && lastPart.includes(' ')) {
-        // For cities with spaces like "New York", use initials
-        return lastPart.split(' ').map(word => word[0]).join('') + 'T';
-      }
-
-      // For other cases, return the last part
-      return lastPart;
-    }
-
-    // Fallback: use the Intl.DateTimeFormat to get the timezone name
-    try {
-      const now = new Date();
-      const formatter = new Intl.DateTimeFormat('en', {
-        timeZoneName: 'short',
-        timeZone: tz
-      });
-      const formatted = formatter.format(now);
-      // Extract the timezone abbreviation (usually after the comma)
-      const match = formatted.match(/,\s*([A-Z]{3,5})/);
-      if (match && match[1]) {
-        return match[1];
-      }
-    } catch (e) {
-      // Ignore errors
-    }
-
-    // Last resort: return the timezone as is
-    return tz;
-  };
 
   // Use a validated timezone or fall back to a default
   const safeTimezone = isValidTimezone(timezone) ? timezone : 'UTC';
 
-  // Get the friendly timezone abbreviation
-  const timezoneAbbr = getTimezoneAbbreviation(safeTimezone);
-
+  // Update the clock and timezone abbreviation when the timezone changes
   useEffect(() => {
+    // Show the timezone name instead of abbreviation
+    // Convert "Asia/Karachi" to just "Karachi" for cleaner display
+    const formatTimezoneDisplay = (tz: string): string => {
+      const parts = tz.split('/');
+      if (parts.length > 1) {
+        // Return the last part (city name) with underscores replaced by spaces
+        return parts[parts.length - 1].replace(/_/g, ' ');
+      }
+      return tz.replace(/_/g, ' ');
+    };
+
+    setTimezoneAbbr(formatTimezoneDisplay(safeTimezone));
+
     const updateClock = () => {
       try {
         const now = new Date();
@@ -156,7 +71,7 @@ export default function TimeDisplay({ timezone }: TimeDisplayProps) {
     const intervalId = setInterval(updateClock, 1000); // Update every second
 
     return () => clearInterval(intervalId); // Cleanup on unmount
-  }, [timezone, isMobile]); // Re-run effect if timezone or mobile state changes
+  }, [timezone, isMobile, safeTimezone]); // Re-run effect if timezone or mobile state changes
 
   return (
     <div className="text-sm text-center md:text-right px-2 sm:px-4 py-1 bg-muted/50 dark:bg-muted/80 text-muted-foreground rounded-md shadow-sm max-w-[200px] sm:max-w-none overflow-hidden">

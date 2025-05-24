@@ -17,6 +17,7 @@ export function getAdherenceLabel(status: AdherenceStatus | null): string {
     case 'on_time': return 'On Time';
     case 'late': return 'Late';
     case 'absent': return 'Absent';
+    case 'pending': return 'Pending';
     default: return 'Unknown';
   }
 }
@@ -30,6 +31,7 @@ export function getAdherenceColor(status: AdherenceStatus | null): string {
     case 'on_time': return 'success'; // Green
     case 'late': return 'warning'; // Yellow/Orange
     case 'absent': return 'destructive'; // Red
+    case 'pending': return 'secondary'; // Gray
     default: return 'secondary'; // Gray
   }
 }
@@ -44,7 +46,7 @@ export function isEligibleForAbsentMarking(
   currentTime: Date = new Date()
 ): boolean {
   // Only employees marked as 'late' can be marked absent
-  if (adherenceStatus !== 'late') {
+  if (adherenceStatus !== 'late' && adherenceStatus !== 'pending') {
     return false;
   }
 
@@ -73,7 +75,7 @@ export function isEligibleForAbsentMarking(
  * Get a tooltip message for an adherence status
  */
 export function getAdherenceTooltip(status: AdherenceStatus | null, shiftStartTime: string | null): string {
-  const formattedTime = shiftStartTime 
+  const formattedTime = shiftStartTime
     ? formatShiftTime(shiftStartTime)
     : '9:00 AM';
 
@@ -86,6 +88,8 @@ export function getAdherenceTooltip(status: AdherenceStatus | null, shiftStartTi
       return `Arrived after the scheduled shift start time (${formattedTime})`;
     case 'absent':
       return `Marked absent for this shift (${formattedTime})`;
+    case 'pending':
+      return `Pending attendance for a future shift (${formattedTime})`;
     default:
       return 'No attendance record for this shift';
   }

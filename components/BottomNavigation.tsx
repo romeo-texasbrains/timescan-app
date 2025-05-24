@@ -50,6 +50,7 @@ const allLinks: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Profile', href: '/profile', icon: User },
     { label: 'Employees', href: '/admin/employees', icon: Users },
     { label: 'Departments', href: '/admin/departments', icon: Building },
+    { label: 'Adherence', href: '/admin/adherence', icon: Clock },
     { label: 'Reports', href: '/admin/reports', icon: BarChart },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
   ],

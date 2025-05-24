@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import Topbar from '@/components/Topbar'; // Import Topbar here
 import BottomNavigation from '@/components/BottomNavigation'; // Import BottomNavigation
 import clsx from 'clsx'; // Import clsx for className conditionals
+import { useTimezone } from '@/context/TimezoneContext'; // Import useTimezone hook
 
 // Simple check for mobile width
 const isMobileWidth = () => typeof window !== 'undefined' && window.innerWidth < 768;
@@ -42,13 +43,16 @@ function MainContentWrapperServer({ children, userEmail, timezone, role = 'user'
 }
 
 // Client component with dynamic layout
-function MainContentWrapperClient({ children, userEmail, timezone, role = 'user' }: MainContentWrapperProps) {
+function MainContentWrapperClient({ children, userEmail, timezone: propTimezone, role = 'user' }: MainContentWrapperProps) {
   const pathname = usePathname();
   // State to track sidebar collapse status and visibility
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(isMobileWidth());
   const [isSidebarHidden, setIsSidebarHidden] = useState(isMobileWidth());
   const [isMobile, setIsMobile] = useState(isMobileWidth());
   const [showSidebar, setShowSidebar] = useState(false);
+
+  // Get timezone from context
+  const { timezone: contextTimezone } = useTimezone();
 
   useEffect(() => {
     // Listener to sync sidebar collapse state for padding adjustment
@@ -87,6 +91,9 @@ function MainContentWrapperClient({ children, userEmail, timezone, role = 'user'
     }
   }, [pathname]);
 
+  // Note: Timezone refresh is now handled by TimezoneContext
+  // No need to refresh timezone here as it's managed centrally
+
   // Handle "More" button click from bottom navigation
   // This is now a fallback in case the BottomNavigation component's own more menu fails
   const handleMoreClick = () => {
@@ -98,7 +105,7 @@ function MainContentWrapperClient({ children, userEmail, timezone, role = 'user'
   return (
     <>
       {/* Topbar is now outside the main content wrapper */}
-      <Topbar userEmail={userEmail} timezone={timezone} isSidebarCollapsed={isSidebarCollapsed} />
+      <Topbar userEmail={userEmail} timezone={contextTimezone || propTimezone} isSidebarCollapsed={isSidebarCollapsed} />
 
       <div
         className={`flex-1 flex flex-col min-h-screen transition-all duration-300 ease-in-out overflow-x-hidden pt-14 ${

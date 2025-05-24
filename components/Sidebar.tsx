@@ -37,6 +37,7 @@ const sections: Record<UserRole, { label: string, href: string, icon: React.Elem
     { label: 'Profile', href: '/profile', icon: UserIcon },
     { label: 'Employees', href: '/admin/employees', icon: UsersIcon },
     { label: 'Departments', href: '/admin/departments', icon: BuildingOfficeIcon },
+    { label: 'Adherence', href: '/admin/adherence', icon: ClockIcon },
     { label: 'Reports', href: '/admin/reports', icon: ChartBarIcon },
     { label: 'Settings', href: '/admin/settings', icon: Cog6ToothIcon },
   ],

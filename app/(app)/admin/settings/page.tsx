@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { Database } from '@/lib/supabase/database.types'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from 'sonner'
+import { useTimezone } from '@/context/TimezoneContext'
 
 // Define a type for settings based on the new table definition
 type AppSettings = Database['public']['Tables']['app_settings']['Row']
@@ -49,48 +50,61 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
   const supabase = createClient();
   const [settings, setSettings] = useState<Partial<AppSettings>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, startTransition] = useTransition();
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const [selectedTimezone, setSelectedTimezone] = useState<string | undefined>(undefined);
 
   // Fetch initial settings (including timezone)
   useEffect(() => {
     const fetchSettings = async () => {
       setIsLoading(true);
+
+      // Default values to use if fetching fails
+      let companyName = 'Default Company Name';
+      let defaultHours = 8;
+      let timezone = 'UTC';
+
       try {
-        // Fetch general settings (assuming they might be there)
-        const { data: generalData, error: generalError } = await supabase
-          .from('app_settings')
-          .select('company_name, default_hours')
-          .eq('id', 1)
-          .maybeSingle<Pick<AppSettings, 'company_name' | 'default_hours'>>();
+        // Try to fetch general settings
+        try {
+          const { data: generalData, error: generalError } = await supabase
+            .from('app_settings')
+            .select('company_name, default_hours, timezone')
+            .eq('id', 1)
+            .maybeSingle();
 
-        if (generalError) {
-          console.error("Error fetching general settings:", generalError);
-          toast.error(`Error loading general settings: ${generalError.message}`);
+          if (!generalError && generalData) {
+            // Use data if available
+            companyName = generalData.company_name || companyName;
+            defaultHours = generalData.default_hours || defaultHours;
+            timezone = generalData.timezone || timezone;
+          } else if (generalError && generalError.code !== 'PGRST116') {
+            // Log error but continue
+            console.warn("Warning fetching general settings:", generalError);
+          }
+        } catch (generalFetchError) {
+          console.warn("Exception fetching general settings:", generalFetchError);
         }
 
-        // Fetch timezone specifically (might be in a separate request or combined)
-        // Using the API route we created is better practice
-        const timezoneResponse = await fetch('/api/settings/timezone');
-        if (!timezoneResponse.ok) {
-            const errorData = await timezoneResponse.json();
-            throw new Error(errorData.message || 'Failed to fetch timezone');
-        }
-        const { timezone } = await timezoneResponse.json();
+        // Use timezone from context instead of making API call
+        // The TimezoneContext already has the timezone from server-side rendering
 
+        // Use timezone from context
+        const contextTimezone = timezoneContext.timezone || 'UTC';
+
+        // Set the state with whatever we managed to get
         setSettings({
-          company_name: generalData?.company_name ?? 'Default Company Name',
-          default_hours: generalData?.default_hours ?? 8,
-          timezone: timezone ?? 'UTC', // Use fetched timezone
+          company_name: companyName,
+          default_hours: defaultHours,
+          timezone: contextTimezone
         });
-        setSelectedTimezone(timezone ?? 'UTC'); // Set initial dropdown value
+        setSelectedTimezone(contextTimezone);
 
       } catch (error: any) {
         console.error("Failed to load settings:", error);
-        toast.error(`Failed to load settings: ${error.message}`);
         // Set defaults even on error
-        setSettings({ company_name: 'Default Company Name', default_hours: 8, timezone: 'UTC' });
-        setSelectedTimezone('UTC');
+        setSettings({ company_name: companyName, default_hours: defaultHours, timezone: timezone });
+        setSelectedTimezone(timezone);
       } finally {
         setIsLoading(false);
       }
@@ -114,20 +128,53 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
 
     startTransition(async () => {
         try {
-            const { error } = await supabase
+            // First check if the record exists
+            const { data: existingSettings, error: checkError } = await supabase
+              .from('app_settings')
+              .select('id')
+              .eq('id', 1)
+              .maybeSingle();
+
+            if (checkError && checkError.code !== 'PGRST116') {
+              console.warn('Error checking app_settings:', checkError);
+            }
+
+            let updateResult;
+
+            if (!existingSettings) {
+              // Insert a new record if none exists
+              updateResult = await supabase
+                .from('app_settings')
+                .insert({
+                  id: 1,
+                  company_name: companyName,
+                  default_hours: defaultHours,
+                  timezone: settings.timezone || 'UTC'
+                });
+            } else {
+              // Update existing record
+              updateResult = await supabase
                 .from('app_settings')
                 .update({ company_name: companyName, default_hours: defaultHours })
                 .eq('id', 1);
-            if (error) throw error;
+            }
+
+            if (updateResult.error) {
+              throw updateResult.error;
+            }
+
             toast.success('General settings saved successfully.');
-            // Optionally re-fetch or update local state if needed
-            setSettings(prev => ({...prev, company_name: companyName, default_hours: defaultHours }))
+            // Update local state
+            setSettings(prev => ({...prev, company_name: companyName, default_hours: defaultHours }));
         } catch (error: any) {
             console.error("Error saving general settings:", error);
             toast.error(`Failed to save general settings: ${error.message}`);
         }
     });
   };
+
+  // Import the useTimezone hook
+  const { setTimezone: setContextTimezone } = useTimezone();
 
   // Handle Timezone Update
   const handleTimezoneSave = async () => {
@@ -138,21 +185,55 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
 
     startTransition(async () => {
         try {
+            setIsSaving(true);
+
             const response = await fetch('/api/settings/timezone', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ timezone: selectedTimezone }),
             });
-            const data = await response.json();
+
+            // Check if response is ok before trying to parse JSON
             if (!response.ok) {
-                throw new Error(data.message || 'Failed to update timezone');
+                let errorMessage = 'Failed to update timezone';
+                try {
+                    const errorData = await response.json();
+                    if (errorData && errorData.message) {
+                        errorMessage = errorData.message;
+                    }
+                } catch (parseError) {
+                    console.error("Error parsing error response:", parseError);
+                    // Use status text if JSON parsing fails
+                    errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
             }
-            toast.success(data.message || 'Timezone updated successfully!');
+
+            // Parse JSON response
+            let data;
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                console.error("Error parsing success response:", parseError);
+                throw new Error("Invalid response from server");
+            }
+
+            toast.success(data?.message || 'Timezone updated successfully!');
+
             // Update local state
             setSettings(prev => ({ ...prev, timezone: selectedTimezone }));
+
+            // Update the context timezone
+            setContextTimezone(selectedTimezone);
+
+            // Clear the timezone manager cache to ensure fresh data
+            const { ClientTimezoneManager } = await import('@/lib/utils/timezone-client');
+            ClientTimezoneManager.getInstance().clearCache();
         } catch (error: any) {
             console.error("Error updating timezone:", error);
             toast.error(`Failed to update timezone: ${error.message}`);
+        } finally {
+            setIsSaving(false);
         }
     });
   };
@@ -178,7 +259,7 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGeneralSettingsSubmit} className="space-y-6">
-            {/* Company Name */} 
+            {/* Company Name */}
             <div className="space-y-2">
               <Label htmlFor="company_name">Company Name</Label>
               <Input
@@ -191,7 +272,7 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
               <p className="text-sm text-muted-foreground">The name displayed throughout the application.</p>
             </div>
 
-            {/* Default Work Hours */} 
+            {/* Default Work Hours */}
             <div className="space-y-2">
               <Label htmlFor="default_hours">Default Work Hours per Day</Label>
               <Input
@@ -209,7 +290,7 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
             </div>
 
             <div className="flex justify-end pt-4">
-              <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save General Settings'}</Button>
+              <Button type="submit" disabled={isSaving || isPending}>{isSaving || isPending ? 'Saving...' : 'Save General Settings'}</Button>
             </div>
           </form>
         </CardContent>
@@ -240,8 +321,8 @@ export default function AdminSettingsPage({ searchParams }: SettingsPageProps) {
               </Select>
            </div>
            <div className="flex justify-end pt-2">
-             <Button onClick={handleTimezoneSave} disabled={isSaving || selectedTimezone === settings.timezone}>
-               {isSaving ? 'Saving...' : 'Save Timezone'}
+             <Button onClick={handleTimezoneSave} disabled={isSaving || isPending || selectedTimezone === settings.timezone}>
+               {isSaving || isPending ? 'Saving...' : 'Save Timezone'}
              </Button>
            </div>
         </CardContent>

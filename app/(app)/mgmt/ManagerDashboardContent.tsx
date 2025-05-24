@@ -118,182 +118,149 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
     const supabase = createClient();
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-    // Subscribe to all attendance_logs table changes
-    const subscription = supabase
-      .channel('manager-dashboard-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'attendance_logs'
-        // No date filter to catch all changes
-      }, async (payload) => {
-        console.log('Real-time update received:', payload);
+    // Create a channel for real-time updates
+    const channel = supabase.channel('manager-dashboard-changes');
 
-        try {
-          // Fetch updated data
-          await refreshDashboardData();
-          setLastUpdateTime(new Date());
-        } catch (error) {
-          console.error('Error refreshing dashboard data:', error);
-          toast.error('Failed to update dashboard data');
+    // Subscribe to attendance_logs table changes
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'attendance_logs'
+      // No date filter to catch all changes
+    }, async (payload) => {
+      console.log('Real-time attendance log update received:', payload);
+
+      try {
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+        toast.success('Dashboard updated with new attendance data');
+      } catch (error) {
+        console.error('Error refreshing dashboard data after attendance log change:', error);
+        toast.error('Failed to update dashboard data');
+      }
+    });
+
+    // Subscribe to attendance_adherence table changes
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'attendance_adherence',
+      filter: `date=eq.${todayStr}`
+    }, async (payload) => {
+      console.log('Real-time adherence update received:', payload);
+
+      try {
+        // Show a more specific toast for adherence changes
+        if (payload.new && payload.old) {
+          // Status changed
+          if (payload.new.status !== payload.old.status) {
+            const userId = payload.new.user_id;
+            const employee = employeesInDepartmentState.find(emp => emp.id === userId);
+            const employeeName = employee ? employee.full_name : 'An employee';
+
+            toast.info(`${employeeName}'s adherence status changed to ${payload.new.status}`);
+          }
         }
-      })
-      .subscribe();
 
-    // Refresh data every 2 minutes as a fallback
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+      } catch (error) {
+        console.error('Error refreshing dashboard data after adherence change:', error);
+        toast.error('Failed to update dashboard data');
+      }
+    });
+
+    // Also subscribe to profiles table changes to catch new employees or department changes
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'profiles'
+    }, async (payload) => {
+      console.log('Real-time profile update received:', payload);
+
+      try {
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+        toast.info('Employee data updated');
+      } catch (error) {
+        console.error('Error refreshing dashboard data after profile change:', error);
+        toast.error('Failed to update employee data');
+      }
+    });
+
+    // Subscribe to the channel
+    const subscription = channel.subscribe();
+
+    // Refresh data every 3 minutes as a fallback
     const intervalId = setInterval(async () => {
       if (isRealTimeEnabled) {
         try {
+          console.log('Performing scheduled manager dashboard refresh...');
           await refreshDashboardData();
           setLastUpdateTime(new Date());
+          console.log('Scheduled manager dashboard refresh completed successfully');
         } catch (error) {
-          console.error('Error in scheduled refresh:', error);
+          console.error('Error in scheduled manager dashboard refresh:', error);
         }
       }
-    }, 2 * 60 * 1000);
+    }, 3 * 60 * 1000);
 
     // Cleanup function
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(channel);
       clearInterval(intervalId);
+      console.log('Cleaned up real-time subscription and interval for manager dashboard');
     };
   }, [isClient, isRealTimeEnabled]);
 
-  // Function to refresh dashboard data
+  // Function to refresh dashboard data using the unified API endpoint
   const refreshDashboardData = async () => {
     try {
-      const supabase = createClient();
-      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      console.log('Fetching dashboard data from unified API endpoint for manager dashboard...');
 
-      // Fetch today's logs count
-      const { count: newTodayLogsCount } = await supabase
-        .from('attendance_logs')
-        .select('*', { count: 'exact', head: true })
-        .gte('timestamp', `${todayStr}T00:00:00`)
-        .lte('timestamp', `${todayStr}T23:59:59`);
-
-      if (newTodayLogsCount !== null) {
-        setTodayLogsCountState(newTodayLogsCount);
-      }
-
-      // Fetch the current timezone from settings
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'timezone')
-        .single();
-
-      if (settings?.value) {
-        setTimezoneState(settings.value);
-      }
-
-      // Call the fix_adherence_status function to update adherence statuses
-      await supabase.rpc('fix_adherence_status');
-
-      // Get team member IDs
-      const teamMemberIds = employeesInDepartmentState.map(emp => emp.id);
-
-      // Fetch recent logs
-      if (teamMemberIds.length > 0) {
-        const { data: newRecentLogs } = await supabase
-          .from('attendance_logs')
-          .select('id, user_id, event_type, timestamp')
-          .in('user_id', teamMemberIds)
-          .order('timestamp', { ascending: false })
-          .limit(20);
-
-        if (newRecentLogs) {
-          setRecentLogsState(newRecentLogs);
-        }
-      }
-
-      // Fetch adherence status for all employees for today
-      const { data: adherenceData } = await supabase
-        .from('attendance_adherence')
-        .select('*')
-        .eq('date', todayStr);
-
-      // Create a map of user IDs to adherence status
-      const userAdherenceMap = new Map();
-      if (adherenceData) {
-        adherenceData.forEach(record => {
-          userAdherenceMap.set(record.user_id, record);
-        });
-      }
-
-      // Fetch team metrics from the API
-      const departmentId = managerProfileState?.department_id || '';
-      const response = await fetch(`/api/attendance/team-metrics?departmentId=${departmentId}&timezone=${encodeURIComponent(timezoneState)}`);
+      // Call the unified API endpoint
+      const response = await fetch('/api/dashboard/data', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store', // Ensure we always get fresh data
+      });
 
       if (!response.ok) {
-        console.error(`Failed to fetch team metrics: ${response.status} ${response.statusText}`);
-        throw new Error(`Failed to fetch team metrics: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(`API error: ${errorData.error || response.statusText}`);
       }
 
-      const { employees } = await response.json();
+      const dashboardData = await response.json();
+      console.log('Dashboard data fetched successfully for manager dashboard');
 
-      if (employees && employees.length > 0) {
-        // Convert API metrics to employee statuses using our utility functions
-        const newEmployeeStatuses: EmployeeStatus[] = employees.map(employee => {
-          // Get the status directly from the API
-          const status = employee.isOnBreak ? 'on_break' : employee.isActive ? 'signed_in' : 'signed_out';
+      // Update all state variables with the fresh data
+      setEmployeeStatusesState(dashboardData.employeeStatuses || []);
+      setEmployeesInDepartmentState(dashboardData.allEmployees || []);
+      setActiveEmployeeCountState(dashboardData.activeEmployeeCount || 0);
+      setTodayLogsCountState(dashboardData.todayLogsCount || 0);
+      setDepartmentMapState(dashboardData.departmentMap || {});
+      setRecentLogsState(dashboardData.recentLogs || []);
+      setTimezoneState(dashboardData.timezone || 'UTC');
 
-          // Get the last activity status using our utility function
-          const lastActivityStatus = employee.lastActivity ?
-            eventTypeToStatus(employee.lastActivity.type) : 'signed_out';
-
-          // Get adherence status from the map
-          const adherenceRecord = userAdherenceMap.get(employee.userId);
-          const adherenceStatus = adherenceRecord ? adherenceRecord.status : null;
-          const eligibleForAbsent = adherenceRecord && adherenceStatus === 'late' &&
-                                   (new Date().getHours() >= 12); // Eligible after noon
-
-          return {
-            id: employee.userId,
-            name: employee.fullName || 'Unnamed',
-            status: status,
-            lastActivity: employee.lastActivity ?
-              getStatusLabel(lastActivityStatus) : 'No activity recorded',
-            lastActivityTime: employee.lastActivity ?
-              formatInTimeZone(parseISO(employee.lastActivity.timestamp), timezoneState, 'h:mm a') : '',
-            totalActiveTime: employee.workTime, // Keep as seconds to match client-side
-            totalBreakTime: employee.breakTime,  // Keep as seconds to match client-side
-            adherence: adherenceStatus,
-            eligible_for_absent: eligibleForAbsent
-          };
+      // Update manager profile if available
+      if (dashboardData.userDepartmentId) {
+        setManagerProfileState({
+          ...managerProfileState,
+          department_id: dashboardData.userDepartmentId
         });
-
-        // Sort employee statuses with robust error handling
-        try {
-          newEmployeeStatuses.sort((a, b) => {
-            try {
-              // Active employees first
-              if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
-              if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
-
-              // Then sort by name - with defensive programming
-              // Ensure both names are strings
-              const nameA = typeof a.name === 'string' ? a.name : String(a.name || a.id || '');
-              const nameB = typeof b.name === 'string' ? b.name : String(b.name || b.id || '');
-
-              // Use simple string comparison instead of localeCompare
-              return nameA > nameB ? 1 : nameA < nameB ? -1 : 0;
-            } catch (innerError) {
-              console.error('Error comparing employees:', innerError, { a, b });
-              return 0; // Keep original order if comparison fails
-            }
-          });
-        } catch (sortError) {
-          console.error('Error sorting employees:', sortError);
-          // If sorting fails, at least we still have the unsorted array
-        }
-
-        // Update state
-        setEmployeeStatusesState(newEmployeeStatuses);
-        setActiveEmployeeCountState(newEmployeeStatuses.filter(emp => emp.status !== 'signed_out').length);
       }
+
+      // Log some debug information
+      console.log(`Refreshed manager dashboard data: ${dashboardData.employeeStatuses?.length || 0} employees, ${dashboardData.todayLogsCount || 0} logs today`);
+
+      return dashboardData;
     } catch (error) {
-      console.error('Error refreshing dashboard data:', error);
+      console.error('Error refreshing manager dashboard data:', error);
       throw error;
     }
   };
@@ -301,11 +268,64 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
   // Function to manually refresh data
   const handleManualRefresh = async () => {
     try {
-      await refreshDashboardData();
+      toast.info('Refreshing dashboard data...');
+      console.log('Manual refresh initiated for manager dashboard');
+
+      // Add a loading state
+      const refreshButton = document.querySelector('[data-manager-refresh-button]');
+      if (refreshButton) {
+        refreshButton.setAttribute('disabled', 'true');
+        refreshButton.innerHTML = '<svg class="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Refreshing...';
+      }
+
+      const dashboardData = await refreshDashboardData();
       setLastUpdateTime(new Date());
-      toast.success('Dashboard data refreshed');
+
+      // Debug: Log the total active time after refresh
+      console.log('Client-side total active time after refresh:',
+        employeeStatusesState.reduce((total, emp) => total + (emp.totalActiveTime || 0), 0));
+
+      // Count adherence statuses for debugging
+      const adherenceCounts = {
+        early: 0,
+        on_time: 0,
+        late: 0,
+        absent: 0,
+        not_set: 0,
+        null: 0
+      };
+
+      employeeStatusesState.forEach(emp => {
+        if (emp.adherence === null) {
+          adherenceCounts.null++;
+        } else if (emp.adherence in adherenceCounts) {
+          adherenceCounts[emp.adherence]++;
+        } else {
+          adherenceCounts.not_set++;
+        }
+      });
+
+      console.log('Adherence status counts after refresh:', adherenceCounts);
+      console.log('Employees eligible for absent marking:',
+        employeeStatusesState.filter(emp => emp.eligible_for_absent).length);
+
+      toast.success('Dashboard data refreshed successfully');
+
+      // Reset the button
+      if (refreshButton) {
+        refreshButton.removeAttribute('disabled');
+        refreshButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg> Refresh';
+      }
     } catch (error) {
-      toast.error('Failed to refresh dashboard data');
+      console.error('Manual refresh error:', error);
+      toast.error('Failed to refresh dashboard data. Please try again.');
+
+      // Reset the button on error
+      const refreshButton = document.querySelector('[data-manager-refresh-button]');
+      if (refreshButton) {
+        refreshButton.removeAttribute('disabled');
+        refreshButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg> Retry';
+      }
     }
   };
 
@@ -362,6 +382,7 @@ const ManagerDashboardContent: React.FC<ManagerDashboardContentProps> = ({ initi
                   onClick={handleManualRefresh}
                   className="inline-flex items-center px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-sm"
                   disabled={!isClient}
+                  data-manager-refresh-button
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />

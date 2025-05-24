@@ -141,18 +141,21 @@ export type Database = {
           id: number
           company_name: string | null
           default_hours: number | null
+          timezone: string | null
           created_at: string
         }
         Insert: {
           id?: number
           company_name?: string | null
           default_hours?: number | null
+          timezone?: string | null
           created_at?: string
         }
         Update: {
           id?: number
           company_name?: string | null
           default_hours?: number | null
+          timezone?: string | null
           created_at?: string
         }
         Relationships: []
@@ -245,7 +248,7 @@ export type Database = {
     Enums: {
       attendance_event_type: "signin" | "signout" | "break_start" | "break_end"
       user_role: "employee" | "manager" | "admin"
-      adherence_status: "early" | "on_time" | "late" | "absent"
+      adherence_status: "early" | "on_time" | "late" | "absent" | "pending"
     }
     CompositeTypes: {
       [_ in never]: never

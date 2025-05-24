@@ -44,6 +44,10 @@ interface AdminDashboardContentProps {
     recentLogs: any[];
     today: Date;
     timezone: string;
+    userRole?: 'admin' | 'manager';
+    userDepartmentId?: string;
+    userDepartmentName?: string;
+    userId?: string;
   };
 }
 
@@ -63,6 +67,10 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
   const [departmentMapState, setDepartmentMapState] = useState<Record<string, string>>({});
   const [recentLogsState, setRecentLogsState] = useState<any[]>([]);
   const [timezoneState, setTimezoneState] = useState('UTC');
+  const [userRoleState, setUserRoleState] = useState<'admin' | 'manager' | undefined>(undefined);
+  const [userDepartmentIdState, setUserDepartmentIdState] = useState<string | undefined>(undefined);
+  const [userDepartmentNameState, setUserDepartmentNameState] = useState<string | undefined>(undefined);
+  const [userIdState, setUserIdState] = useState<string | undefined>(undefined);
 
   // Extract data from props with safety checks
   const {
@@ -74,7 +82,11 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     departmentMap = {},
     recentLogs = [],
     today = new Date(),
-    timezone = 'UTC'
+    timezone = 'UTC',
+    userRole = 'admin',
+    userDepartmentId = '',
+    userDepartmentName = 'All Departments',
+    userId = ''
   } = initialData || {};
 
   // Initialize state with initial data
@@ -87,6 +99,10 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     setDepartmentMapState(departmentMap);
     setRecentLogsState(recentLogs);
     setTimezoneState(timezone);
+    setUserRoleState(userRole as 'admin' | 'manager');
+    setUserDepartmentIdState(userDepartmentId);
+    setUserDepartmentNameState(userDepartmentName);
+    setUserIdState(userId);
     setIsClient(true);
     stopLoading();
   }, [
@@ -98,6 +114,10 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     departmentMap,
     recentLogs,
     timezone,
+    userRole,
+    userDepartmentId,
+    userDepartmentName,
+    userId,
     stopLoading
   ]);
 
@@ -108,338 +128,195 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
     const supabase = createClient();
     const todayStr = format(new Date(), 'yyyy-MM-dd');
 
+    // Create a channel for real-time updates
+    const channel = supabase.channel('admin-dashboard-changes');
+
     // Subscribe to attendance_logs table changes
-    const subscription = supabase
-      .channel('admin-dashboard-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'attendance_logs',
-        filter: `timestamp=gte.${todayStr}T00:00:00`
-      }, async (payload) => {
-        console.log('Real-time update received:', payload);
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'attendance_logs',
+      filter: `timestamp=gte.${todayStr}T00:00:00`
+    }, async (payload) => {
+      console.log('Real-time attendance log update received:', payload);
 
-        try {
-          // Fetch updated data
-          await refreshDashboardData();
-          setLastUpdateTime(new Date());
-        } catch (error) {
-          console.error('Error refreshing dashboard data:', error);
-          toast.error('Failed to update dashboard data');
+      try {
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+        toast.success('Dashboard updated with new attendance data');
+      } catch (error) {
+        console.error('Error refreshing dashboard data after attendance log change:', error);
+        toast.error('Failed to update dashboard data');
+      }
+    });
+
+    // Subscribe to attendance_adherence table changes
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'attendance_adherence',
+      filter: `date=eq.${todayStr}`
+    }, async (payload) => {
+      console.log('Real-time adherence update received:', payload);
+
+      try {
+        // Show a more specific toast for adherence changes
+        if (payload.new && payload.old) {
+          // Status changed
+          if (payload.new.status !== payload.old.status) {
+            const userId = payload.new.user_id;
+            const employee = allEmployeesState.find(emp => emp.id === userId);
+            const employeeName = employee ? employee.full_name : 'An employee';
+
+            toast.info(`${employeeName}'s adherence status changed to ${payload.new.status}`);
+          }
         }
-      })
-      .subscribe();
 
-    // Refresh data every 2 minutes as a fallback
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+      } catch (error) {
+        console.error('Error refreshing dashboard data after adherence change:', error);
+        toast.error('Failed to update dashboard data');
+      }
+    });
+
+    // Also subscribe to profiles table changes to catch new employees or department changes
+    channel.on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'profiles'
+    }, async (payload) => {
+      console.log('Real-time profile update received:', payload);
+
+      try {
+        // Fetch updated data
+        await refreshDashboardData();
+        setLastUpdateTime(new Date());
+        toast.info('Employee data updated');
+      } catch (error) {
+        console.error('Error refreshing dashboard data after profile change:', error);
+        toast.error('Failed to update employee data');
+      }
+    });
+
+    // Subscribe to the channel
+    const subscription = channel.subscribe();
+
+    // Refresh data every 3 minutes as a fallback
     const intervalId = setInterval(async () => {
       if (isRealTimeEnabled) {
         try {
+          console.log('Performing scheduled dashboard refresh...');
           await refreshDashboardData();
           setLastUpdateTime(new Date());
+          console.log('Scheduled refresh completed successfully');
         } catch (error) {
           console.error('Error in scheduled refresh:', error);
         }
       }
-    }, 2 * 60 * 1000);
+    }, 3 * 60 * 1000);
 
     // Cleanup function
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(channel);
       clearInterval(intervalId);
+      console.log('Cleaned up real-time subscription and interval');
     };
   }, [isClient, isRealTimeEnabled]);
 
-  // Function to refresh dashboard data
+  // Function to refresh dashboard data using the unified API endpoint
   const refreshDashboardData = async () => {
     try {
-      const supabase = createClient();
-      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      console.log('Fetching dashboard data from unified API endpoint...');
 
-      // Fetch today's logs count
-      const { count: newTodayLogsCount } = await supabase
-        .from('attendance_logs')
-        .select('*', { count: 'exact', head: true })
-        .gte('timestamp', `${todayStr}T00:00:00`)
-        .lte('timestamp', `${todayStr}T23:59:59`);
+      // Call the unified API endpoint
+      const response = await fetch('/api/dashboard/data', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store', // Ensure we always get fresh data
+      });
 
-      if (newTodayLogsCount !== null) {
-        setTodayLogsCountState(newTodayLogsCount);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API error: ${errorData.error || response.statusText}`);
       }
 
-      // Fetch recent logs
-      const { data: newRecentLogs } = await supabase
-        .from('attendance_logs')
-        .select('id, user_id, event_type, timestamp')
-        .order('timestamp', { ascending: false })
-        .limit(20);
+      const dashboardData = await response.json();
+      console.log('Dashboard data fetched successfully');
 
-      if (newRecentLogs) {
-        setRecentLogsState(newRecentLogs);
+      // Update all state variables with the fresh data
+      setEmployeeStatusesState(dashboardData.employeeStatuses || []);
+      setEmployeesByDepartmentState(dashboardData.employeesByDepartment || {});
+      setAllEmployeesState(dashboardData.allEmployees || []);
+      setActiveEmployeeCountState(dashboardData.activeEmployeeCount || 0);
+      setTodayLogsCountState(dashboardData.todayLogsCount || 0);
+      setDepartmentMapState(dashboardData.departmentMap || {});
+      setTimezoneState(dashboardData.timezone || 'UTC');
+
+      // Update user role information
+      if (dashboardData.userRole) {
+        setUserRoleState(dashboardData.userRole as 'admin' | 'manager');
+      }
+      if (dashboardData.userDepartmentId !== undefined) {
+        setUserDepartmentIdState(dashboardData.userDepartmentId);
+      }
+      if (dashboardData.userDepartmentName) {
+        setUserDepartmentNameState(dashboardData.userDepartmentName);
+      }
+      if (dashboardData.userId) {
+        setUserIdState(dashboardData.userId);
       }
 
-      // Fetch the current timezone from settings
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('value')
-        .eq('key', 'timezone')
-        .single();
+      // Fetch recent activity separately using the dedicated API
+      await refreshRecentActivity();
 
-      if (settings?.value) {
-        setTimezoneState(settings.value);
-      }
+      // Log some debug information
+      console.log(`Refreshed dashboard data: ${dashboardData.employeeStatuses?.length || 0} employees, ${dashboardData.todayLogsCount || 0} logs today`);
 
-      // Call the fix_adherence_status function to update adherence statuses
-      await supabase.rpc('fix_adherence_status');
-
-      // Fetch adherence status for all employees for today
-      const { data: adherenceData } = await supabase
-        .from('attendance_adherence')
-        .select('*')
-        .eq('date', todayStr);
-
-      // Fetch today's logs for processing employee statuses
-      const { data: todayLogs } = await supabase
-        .from('attendance_logs')
-        .select('id, user_id, event_type, timestamp')
-        .gte('timestamp', `${todayStr}T00:00:00`)
-        .lte('timestamp', `${todayStr}T23:59:59`)
-        .order('timestamp', { ascending: true });
-
-      // Create a map of user IDs to adherence status
-      const userAdherenceMap = new Map();
-      if (adherenceData) {
-        adherenceData.forEach(record => {
-          userAdherenceMap.set(record.user_id, record);
-        });
-      }
-
-      if (todayLogs && allEmployeesState.length > 0) {
-        // Process employee statuses (similar to server-side logic)
-        const newEmployeeStatuses: any[] = [];
-        const activeEmployeeIds = new Set<string>();
-
-        // Create maps to track active periods and break periods
-        const employeeActivePeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-        const employeeBreakPeriods = new Map<string, { start: Date, periods: { start: Date, end: Date }[] }>();
-
-        // Create a map of the latest status for each employee
-        const latestStatusMap = new Map<string, { status: 'signed_in' | 'signed_out' | 'on_break', timestamp: string }>();
-
-        // Process logs chronologically
-        todayLogs.forEach(log => {
-          const timestamp = new Date(log.timestamp);
-          const userId = log.user_id;
-
-          // Update latest status
-          let status: 'signed_in' | 'signed_out' | 'on_break' = 'signed_out';
-
-          if (log.event_type === 'signin') {
-            // Start tracking active time
-            if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
-            } else if (!employeeActivePeriods.get(userId)!.start) {
-              employeeActivePeriods.get(userId)!.start = timestamp;
-            }
-
-            status = 'signed_in';
-            activeEmployeeIds.add(userId);
-          }
-          else if (log.event_type === 'signout') {
-            // End active period if exists
-            if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-              const activePeriod = employeeActivePeriods.get(userId)!;
-              activePeriod.periods.push({
-                start: activePeriod.start,
-                end: timestamp
-              });
-              activePeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // End break period if exists
-            if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-              const breakPeriod = employeeBreakPeriods.get(userId)!;
-              breakPeriod.periods.push({
-                start: breakPeriod.start,
-                end: timestamp
-              });
-              breakPeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            status = 'signed_out';
-          }
-          else if (log.event_type === 'break_start') {
-            // End active period if exists
-            if (employeeActivePeriods.has(userId) && employeeActivePeriods.get(userId)!.start) {
-              const activePeriod = employeeActivePeriods.get(userId)!;
-              activePeriod.periods.push({
-                start: activePeriod.start,
-                end: timestamp
-              });
-              activePeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // Start break period
-            if (!employeeBreakPeriods.has(userId)) {
-              employeeBreakPeriods.set(userId, { start: timestamp, periods: [] });
-            } else {
-              employeeBreakPeriods.get(userId)!.start = timestamp;
-            }
-
-            status = 'on_break';
-            activeEmployeeIds.add(userId);
-          }
-          else if (log.event_type === 'break_end') {
-            // End break period if exists
-            if (employeeBreakPeriods.has(userId) && employeeBreakPeriods.get(userId)!.start) {
-              const breakPeriod = employeeBreakPeriods.get(userId)!;
-              breakPeriod.periods.push({
-                start: breakPeriod.start,
-                end: timestamp
-              });
-              breakPeriod.start = null as unknown as Date; // Clear start time
-            }
-
-            // Start active period
-            if (!employeeActivePeriods.has(userId)) {
-              employeeActivePeriods.set(userId, { start: timestamp, periods: [] });
-            } else {
-              employeeActivePeriods.get(userId)!.start = timestamp;
-            }
-
-            status = 'signed_in';
-            activeEmployeeIds.add(userId);
-          }
-
-          // Update latest status
-          if (!latestStatusMap.has(userId) ||
-              new Date(latestStatusMap.get(userId)!.timestamp) < timestamp) {
-            latestStatusMap.set(userId, { status, timestamp: log.timestamp });
-          }
-        });
-
-        // Close any open periods with current time for employees still active
-        const now = new Date();
-
-        employeeActivePeriods.forEach((data, userId) => {
-          if (data.start) {
-            data.periods.push({ start: data.start, end: now });
-          }
-        });
-
-        employeeBreakPeriods.forEach((data, userId) => {
-          if (data.start) {
-            data.periods.push({ start: data.start, end: now });
-          }
-        });
-
-        // Calculate total times for each employee in seconds (to match employee dashboard)
-        const calculateTotalSeconds = (periods: { start: Date, end: Date }[]): number => {
-          return periods.reduce((total, period) => {
-            const seconds = (period.end.getTime() - period.start.getTime()) / 1000;
-            // Apply capping to prevent unreasonably long durations
-            const { durationSeconds } = capShiftDuration(period.start.getTime(), period.end.getTime());
-            return total + durationSeconds;
-          }, 0);
-        };
-
-        // Create employee status objects
-        allEmployeesState.forEach(employee => {
-          // Skip if employee is undefined or doesn't have an id
-          if (!employee || !employee.id) return;
-
-          const latestStatus = latestStatusMap.get(employee.id);
-          const totalActiveSeconds = employeeActivePeriods.has(employee.id)
-            ? calculateTotalSeconds(employeeActivePeriods.get(employee.id)!.periods)
-            : 0;
-
-          const totalBreakSeconds = employeeBreakPeriods.has(employee.id)
-            ? calculateTotalSeconds(employeeBreakPeriods.get(employee.id)!.periods)
-            : 0;
-
-          // Get all logs for this employee
-          const employeeLogs = todayLogs.filter(log => log.user_id === employee.id);
-
-          // Use our utility function to determine the current status
-          const currentStatus = determineUserStatus(employeeLogs);
-
-          // Get adherence status from the map
-          const adherenceRecord = userAdherenceMap.get(employee.id);
-          const adherenceStatus = adherenceRecord ? adherenceRecord.status : null;
-          const eligibleForAbsent = adherenceRecord && adherenceStatus === 'late' &&
-                                   (new Date().getHours() >= 12); // Eligible after noon
-
-          if (latestStatus) {
-            newEmployeeStatuses.push({
-              id: employee.id,
-              name: employee.full_name || 'Unnamed',
-              status: currentStatus, // Use our utility function instead of latestStatus.status
-              lastActivity: getStatusLabel(currentStatus),
-              lastActivityTime: formatInTimeZone(parseISO(latestStatus.timestamp), timezoneState, 'h:mm a'),
-              department_id: employee.department_id || 'unassigned',
-              totalActiveTime: totalActiveSeconds,
-              totalBreakTime: totalBreakSeconds,
-              adherence: adherenceStatus,
-              eligible_for_absent: eligibleForAbsent
-            });
-          } else {
-            newEmployeeStatuses.push({
-              id: employee.id,
-              name: employee.full_name || 'Unnamed',
-              status: 'signed_out',
-              lastActivity: 'Not active today',
-              lastActivityTime: '',
-              department_id: employee.department_id || 'unassigned',
-              totalActiveTime: 0,
-              totalBreakTime: 0,
-              adherence: adherenceStatus,
-              eligible_for_absent: eligibleForAbsent
-            });
-          }
-        });
-
-        // Sort employee statuses
-        newEmployeeStatuses.sort((a, b) => {
-          // Active employees first
-          if (a.status !== 'signed_out' && b.status === 'signed_out') return -1;
-          if (a.status === 'signed_out' && b.status !== 'signed_out') return 1;
-
-          // Then sort by name
-          return a.name.localeCompare(b.name);
-        });
-
-        // Group employees by department
-        const newEmployeesByDepartment: Record<string, any[]> = {
-          'unassigned': []
-        };
-
-        // Initialize with all departments
-        Object.keys(departmentMapState).forEach(deptId => {
-          newEmployeesByDepartment[deptId] = [];
-        });
-
-        // Populate departments with employees
-        newEmployeeStatuses.forEach(employee => {
-          const deptId = employee.department_id || 'unassigned';
-          if (!newEmployeesByDepartment[deptId]) {
-            newEmployeesByDepartment[deptId] = [];
-          }
-          newEmployeesByDepartment[deptId].push(employee);
-        });
-
-        // Update state
-        setEmployeeStatusesState(newEmployeeStatuses);
-        setEmployeesByDepartmentState(newEmployeesByDepartment);
-        setActiveEmployeeCountState(activeEmployeeIds.size);
-      }
+      return dashboardData;
     } catch (error) {
       console.error('Error refreshing dashboard data:', error);
       throw error;
     }
   };
 
-  // We're now using the imported getStatusLabel function from our utility
+  // Function to refresh recent activity data
+  const refreshRecentActivity = async () => {
+    try {
+      console.log('Fetching recent activity data...');
 
-  // Helper function to format seconds into hours and minutes (to match employee dashboard)
+      // Call the recent activity API endpoint
+      const response = await fetch('/api/activity/recent?limit=20', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`API error: ${errorData.error || response.statusText}`);
+      }
+
+      const activityData = await response.json();
+      console.log('Recent activity data fetched successfully');
+
+      // Update recent logs state
+      setRecentLogsState(activityData.logs || []);
+
+      return activityData;
+    } catch (error) {
+      console.error('Error refreshing recent activity data:', error);
+      throw error;
+    }
+  };
+
+  // Helper function to format seconds into hours and minutes
   function formatSeconds(seconds: number): string {
     if (seconds === 0) return '0m';
 
@@ -596,21 +473,64 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
   // Function to manually refresh data
   const handleManualRefresh = async () => {
     try {
-      await refreshDashboardData();
+      toast.info('Refreshing dashboard data...');
+      console.log('Manual refresh initiated');
+
+      // Add a loading state
+      const refreshButton = document.querySelector('[data-refresh-button]');
+      if (refreshButton) {
+        refreshButton.setAttribute('disabled', 'true');
+        refreshButton.innerHTML = '<svg class="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Refreshing...';
+      }
+
+      const dashboardData = await refreshDashboardData();
       setLastUpdateTime(new Date());
 
       // Debug: Log the total active time after refresh
       console.log('Client-side total active time after refresh:',
-        employeeStatusesState.reduce((total, emp) => total + emp.totalActiveTime, 0));
+        employeeStatusesState.reduce((total, emp) => total + (emp.totalActiveTime || 0), 0));
 
-      // Debug: Log each employee's active time
+      // Count adherence statuses for debugging
+      const adherenceCounts = {
+        early: 0,
+        on_time: 0,
+        late: 0,
+        absent: 0,
+        not_set: 0,
+        null: 0
+      };
+
       employeeStatusesState.forEach(emp => {
-        console.log(`Employee ${emp.name} active time after refresh: ${emp.totalActiveTime} seconds`);
+        if (emp.adherence === null) {
+          adherenceCounts.null++;
+        } else if (emp.adherence in adherenceCounts) {
+          adherenceCounts[emp.adherence]++;
+        } else {
+          adherenceCounts.not_set++;
+        }
       });
 
-      toast.success('Dashboard data refreshed');
+      console.log('Adherence status counts after refresh:', adherenceCounts);
+      console.log('Employees eligible for absent marking:',
+        employeeStatusesState.filter(emp => emp.eligible_for_absent).length);
+
+      toast.success('Dashboard data refreshed successfully');
+
+      // Reset the button
+      if (refreshButton) {
+        refreshButton.removeAttribute('disabled');
+        refreshButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg> Refresh';
+      }
     } catch (error) {
-      toast.error('Failed to refresh dashboard data');
+      console.error('Manual refresh error:', error);
+      toast.error('Failed to refresh dashboard data. Please try again.');
+
+      // Reset the button on error
+      const refreshButton = document.querySelector('[data-refresh-button]');
+      if (refreshButton) {
+        refreshButton.removeAttribute('disabled');
+        refreshButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" /></svg> Retry';
+      }
     }
   };
 
@@ -629,9 +549,21 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
       <div className="flex flex-col mb-8">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Admin Dashboard</h1>
+            <h1 className="text-3xl font-bold text-foreground">
+              {isRealTimeEnabled ?
+                (userRoleState === 'admin' ? 'Admin Dashboard' : 'Manager Dashboard') :
+                (userRole === 'admin' ? 'Admin Dashboard' : 'Manager Dashboard')
+              }
+            </h1>
             <p className="text-muted-foreground mt-1">
-              Overview of all departments and employee attendance status
+              {isRealTimeEnabled ?
+                (userRoleState === 'admin' ?
+                  'Overview of all departments and employee attendance status' :
+                  `Overview of ${userDepartmentNameState || 'your department'} attendance status`) :
+                (userRole === 'admin' ?
+                  'Overview of all departments and employee attendance status' :
+                  `Overview of ${userDepartmentName || 'your department'} attendance status`)
+              }
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -644,6 +576,7 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                 onClick={handleManualRefresh}
                 className="inline-flex items-center px-3 py-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors text-sm"
                 disabled={!isClient}
+                data-refresh-button
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
@@ -1186,45 +1119,17 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                   </thead>
                   <tbody>
                     {(isRealTimeEnabled ? recentLogsState : recentLogs).map(log => {
-                      // Find employee name
-                      const employee = (isRealTimeEnabled ? allEmployeesState : allEmployees).find(emp => emp && emp.id === log.user_id);
-                      const employeeName = employee && employee.full_name ? employee.full_name : 'Unknown Employee';
-                      // Get department info with proper type checking
-                      let departmentName = 'Unknown';
+                      // Get employee name from the log
+                      const employeeName = log.userName || 'Unknown Employee';
 
-                      try {
-                        if (employee && employee.department_id) {
-                          const deptId = employee.department_id;
-                          const deptInfo = isRealTimeEnabled ? departmentMapState[deptId] : departmentMap[deptId];
-
-                          if (deptInfo) {
-                            // Handle string department names
-                            if (typeof deptInfo === 'string') {
-                              departmentName = deptInfo;
-                            }
-                            // Handle object department info
-                            else if (typeof deptInfo === 'object' && deptInfo !== null) {
-                              // Extract name with validation
-                              if ('name' in deptInfo && typeof deptInfo.name === 'string') {
-                                departmentName = deptInfo.name;
-                              } else {
-                                departmentName = `Department ${deptId}`;
-                              }
-                            }
-                          }
-                        } else {
-                          departmentName = 'Unassigned';
-                        }
-                      } catch (error) {
-                        console.error('Error getting department name:', error);
-                        departmentName = 'Unknown';
-                      }
+                      // Get department name from the log
+                      const departmentName = log.departmentName || 'Unknown';
 
                       // Format event type
                       let eventType = '';
                       let eventVariant: 'success' | 'destructive' | 'warning' | 'outline' = 'outline';
 
-                      switch(log.event_type) {
+                      switch(log.eventType) {
                         case 'signin':
                           eventType = 'Signed In';
                           eventVariant = 'success';
@@ -1242,13 +1147,8 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                           eventVariant = 'success';
                           break;
                         default:
-                          eventType = log.event_type;
+                          eventType = log.eventType;
                       }
-
-                      // Format timestamp with timezone
-                      const timestamp = parseISO(log.timestamp);
-                      const dateStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'MMM d, yyyy');
-                      const timeStr = formatInTimeZone(timestamp, isRealTimeEnabled ? timezoneState : timezone, 'h:mm a');
 
                       return (
                         <tr key={log.id} className="border-t border-border hover:bg-muted/20">
@@ -1259,8 +1159,8 @@ const AdminDashboardContent: React.FC<AdminDashboardContentProps> = ({ initialDa
                               {eventType}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-muted-foreground">{dateStr}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{timeStr}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{log.formattedDate}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{log.formattedTime}</td>
                         </tr>
                       );
                     })}

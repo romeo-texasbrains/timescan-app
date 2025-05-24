@@ -1,4 +1,5 @@
 import DashboardClient from "@/components/DashboardClient";
+import DashboardChartsSection from "@/components/DashboardChartsSection";
 import { createClient } from "@/lib/supabase/server";
 import { AttendanceProvider } from "@/context/AttendanceContext";
 import { Suspense } from "react";
@@ -91,11 +92,14 @@ export default async function TimeScanDashboard() {
         userId={user?.id || ''}
         timezone={timezone}
       >
-        <DashboardClient
-          userProfile={profile || null}
-          departmentName={departmentName}
-          timezone={timezone}
-        />
+        <div className="container mx-auto p-4">
+          <DashboardClient
+            userProfile={profile || null}
+            departmentName={departmentName}
+            timezone={timezone}
+          />
+          <DashboardChartsSection />
+        </div>
       </AttendanceProvider>
     </Suspense>
   );

@@ -8,6 +8,7 @@ import { TimezoneProvider } from '@/context/TimezoneContext' // Import the Provi
 import MainContentWrapper from '@/components/MainContentWrapper' // Import the new component
 import LoadingProvider from '@/context/LoadingContext' // Import the Loading Provider
 import ClientErrorHandler from '@/components/ClientErrorHandler' // Import the client error handler wrapper
+import TimezoneDebug from '@/components/TimezoneDebug' // Import debug component
 import BirthdayProvider from '@/components/birthday/BirthdayProvider' // Import the birthday provider
 import PwaComponents from '@/components/PwaComponents' // Import the PWA components wrapper
 
@@ -62,30 +63,30 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const userRole = (profile?.role as UserRole) || 'user';
   const userEmail = user?.email || 'User';
 
-  // --- Fetch Timezone Setting ---
-  let timezone = 'UTC'; // Default string value
+  // --- Timezone Setting ---
+  let timezone = 'UTC'; // Default timezone
   try {
-    // Explicitly select timezone as text
     const { data: settings, error: tzError } = await supabase
       .from('app_settings')
-      .select('timezone') // Select the column
+      .select('timezone')
       .eq('id', 1)
-      .single(); // Get the single row object
+      .single();
 
     if (tzError) {
       if (tzError.code !== 'PGRST116') { // Ignore row not found
         console.error("Error fetching timezone setting in layout:", tzError);
       }
+    } else if (settings?.timezone) {
+      timezone = settings.timezone;
+      console.log(`Layout: Successfully fetched timezone from database: ${timezone}`);
     } else {
-      // Check if data and timezone property exist and are string
-      if (settings?.timezone && typeof settings.timezone === 'string') {
-        timezone = settings.timezone;
-      }
+      console.log('Layout: No timezone found in settings, using UTC default');
     }
   } catch (error) {
     console.error("Error fetching timezone setting in layout:", error);
-    // Keep default timezone if fetch fails
   }
+
+  console.log(`Layout: Final timezone being passed to TimezoneProvider: ${timezone}`);
   // -----------------------------
 
   // Client-side logout remains the same, but needs to be passed down
@@ -117,6 +118,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </MainContentWrapper>
         </TimezoneProvider>
         <Toaster position="top-center" /> {/* Add Toaster here for sonner notifications */}
+        <TimezoneDebug /> {/* Add debug component */}
       </div>
     </LoadingProvider>
   );
